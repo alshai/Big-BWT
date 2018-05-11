@@ -4,7 +4,7 @@ CFLAGS=-O2 -Wall -std=c99 -g
 CC=gcc
 
 # old execs: cscan.x scan.x scanfq.x cnewscan.x subseq   
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 subseq newscan.x pfbwt.x  
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x  
 
 all: $(EXECS)
 
