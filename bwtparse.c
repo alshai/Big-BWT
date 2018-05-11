@@ -89,7 +89,7 @@ int main(int argc, char *argv[]){
   s = fread(Text,sizeof(*Text),n,parse);
   if(s!=n) {printf("%zu vs %ld\n", s,n); die("read parse error");}
   #endif
-  fclose(parse);
+  if(fclose(parse)!=0) die("parse file close");
   Text[n]=0; // sacak needs a 0 eos 
   // ------- compute alphabet size-1
   uint32_t k=0;
@@ -111,25 +111,25 @@ int main(int argc, char *argv[]){
   if(last==NULL) die("malloc failed (LAST)"); 
   s = fread(last,1,n,lastin);
   if(s!=n) die("last read");
-  fclose(lastin);
+  if(fclose(lastin)!=0) die("last file close");
   // transform SA->BWT and write remapped last array
   assert(n>1);
   assert(SA[0]==n);
   BWT[0] = Text[n-1];
-  fputc(last[n-2],lastout);
+  if(fputc(last[n-2],lastout)==EOF) die("bwlast output 1");
   for(long i=1;i<=n;i++) {
     if(SA[i]==0) {
       assert(i==1);
       BWT[i] = 0;       // eof in BWT
-      if(fputc(0,lastout)==EOF) die("bwlast output"); // dummy char 
+      if(fputc(0,lastout)==EOF) die("bwlast output 2"); // dummy char 
     }
     else {
-      if(SA[i]==1) putc(last[n-1],lastout);
-      else    fputc(last[SA[i]-2],lastout);
+      if(SA[i]==1) {if(fputc(last[n-1],lastout)==EOF) die("bwlast output 3");}
+      else    {if(fputc(last[SA[i]-2],lastout)==EOF) die("bwlast output 4");}
       BWT[i] = Text[SA[i]-1];
     }
   }
-  fclose(lastout);
+  if(fclose(lastout)!=0) die("bwlast close");
   printf("---- %ld bwlast chars written ----\n",n+1);
   #if M64
   free(Text);
