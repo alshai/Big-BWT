@@ -25,7 +25,7 @@ The only requirement for the input file is that it does not contain the characte
 
        bigbwt hugefile.fa
 
-The program shows its progress and finally the running time. If no errors occurred the BWT file hugefile.fa.bwt is created: it should be one character longer that the input and contains the character 0x00 in the position of the BWT's eos. Two important options are the windows size `-w` and the modulus `-m`. They are explained in the paper. 
+The program shows its progress and finally the running time. If no errors occurred the BWT file hugefile.fa.bwt is created: it should be one character longer that the input and contains the character 0x00 in the position of the BWT's eos. Two important command line options are the windows size `-w` and the modulus `-m`. They are explained in the paper. 
 
 If you don't trust the output run bigbwt with option `-c`. This will compute the same BWT using the GSACAK algorithm and compare it with the one computed by bigbwt. Be warned that GSACA BWT needs up to *9n* bytes, since it first compute the Suffix Array and the outputs the BWT.
 
