@@ -72,9 +72,9 @@ void die(string s)
 
 // binary search for x in an array a[0..n-1] that does not contain x
 // return the lowest position that is larger than x
-int binsearch(uint32_t x, uint32_t a[], int n)
+long binsearch(uint_t x, uint_t a[], long n)
 {
-  int lo=0; int hi = n-1;
+  long lo=0; long hi = n-1;
   while(hi>lo) {
     assert( ((lo==0) || x>a[lo-1]) && x< a[hi]);
     int mid = (lo+hi)/2;
@@ -86,54 +86,61 @@ int binsearch(uint32_t x, uint32_t a[], int n)
   return hi; 
 }
 
-// return the length of the suffix startin in position p.
-// also write to seqid the id of the sequecne containing that suffix 
-int getlen(uint32_t p, uint32_t eos[], int n, uint32_t *seqid)
+// return the length of the suffix starting in position p.
+// also write to seqid the id of the sequence containing that suffix 
+// n is the 3 of distinct words in the dictionary 
+int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 {
   assert(p<eos[n-1]);
   *seqid = binsearch(p,eos,n);
+  assert(eos[*seqid]> p); // distance between position p and the next $
   return eos[*seqid] - p;
 }
 
-void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, uint32_t istart[], int dwords, int w, string name)
+void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, uint32_t istart[], long dwords, int w, string name)
 {
   
   // compute sa and bwt of d
-  uint32_t *sa = new uint32_t[dsize];
-  int32_t *lcp = new int32_t[dsize];
-  (void) psize;
+  uint_t *sa = new uint_t[dsize];
+  int_t *lcp = new int_t[dsize];
+  (void) psize; // can be useful in assertions
 
   cout << "Computing SA and LCP of dictionary" << endl; 
+  time_t  start = time(NULL);
   gsacak(d,sa,lcp,NULL,dsize);
+  cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
   // do some checking on the sa
   assert(d[dsize-1]==EndOfDict);
-  assert(sa[0]==dsize-1);
-  for(int i=0;i<dwords;i++) 
+  assert(sa[0]==(unsigned long)dsize-1);
+  for(long i=0;i<dwords;i++) 
     assert(d[sa[i+1]]==EndOfWord); // there are dwords eos symbols  
-  assert(sa[dwords]==dsize-2);  
-  for(int i=0;i<=w;i++)
+  assert(sa[dwords]==(unsigned long)dsize-2);  
+  for(long i=0;i<=w;i++)
     assert(d[sa[i+dwords+1]]==Dollar); // there are wsize+1 $ symbols        
   // in sa[dwords+w+1] we have the first word in the parsing   
   assert(d[0]==Dollar);
   assert(sa[dwords+w+1]==0);
   assert(lcp[dwords+w+2]==0); // end of Dollar chars 
-  // set d[0] ==0 as this it te EOF chars in the file BWT
+  // set d[0] ==0 as this is the EOF char in the final BWT
   d[0]=0;
   // derive eos from sa. for i=0...dwords-1, eos[i] is the eos position of string i in d
-  uint32_t *eos = sa+1;
+  uint_t *eos = sa+1;
 
   // open output file 
   FILE *fbwt = fopen(name.c_str(),"wb");
   if(fbwt==NULL) die("Open bwt file");
   
   // main loop
-  int full_words = 0; 
+  start = time(NULL);
+  long full_words = 0; 
+  long easy_bwts = 0;
+  long hard_bwts = 0;
   long next;
   uint32_t seqid;
   for(long i=dwords+w+1; i< dsize; i=next ) {
     // we are considering t[sa[i]....]
     next = i+1;  // prepare for next iteration  
-    int suffixLen = getlen(sa[i],eos,dwords,&seqid);
+    int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
     // ignore suffixes of lenght <= w
     if(suffixLen<=w) continue;
     // simple case: the suffix is a full word 
@@ -150,7 +157,7 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
     while(next<dsize && lcp[next]>=suffixLen) {
       assert(lcp[next]==suffixLen);  // the lcp cannot be greater than suffixLen
       assert(sa[next]>0 && d[sa[next]-1]!=EndOfWord); // sa[end] cannot be a full word
-      int nextsuffixLen = getlen(sa[next],eos,dwords,&seqid);
+      int_t nextsuffixLen = getlen(sa[next],eos,dwords,&seqid);
       assert(nextsuffixLen>=suffixLen);
       if(nextsuffixLen==suffixLen) {
         id2merge.push_back(seqid);           // sequence to consider
@@ -165,9 +172,10 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
       uint32_t s = id2merge[0];
       for(uint32_t j=istart[s];j<istart[s+1];j++)
         if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      easy_bwts +=  istart[s+1]- istart[s]; 
       continue;   
     }
-    // many words, same char
+    // many words, same char?
     bool samechar=true;
     for(size_t i=1;(i<numwords)&&samechar;i++)
       samechar = (char2write[i-1]==char2write[i]); 
@@ -176,11 +184,11 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
         uint32_t s = id2merge[i];
         for(uint32_t j=istart[s];j<istart[s+1];j++)
           if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
+        easy_bwts +=  istart[s+1]- istart[s]; 
       }
       continue;
     }
     // many words, many chars...     
-    // process stack
     {
       // create heap
       vector<SeqId> heap;
@@ -193,6 +201,7 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
         // output char for the top of the heap
         SeqId s = heap.front();
         if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+        hard_bwts += 1;
         // remove top 
         pop_heap(heap.begin(),heap.end());
         heap.pop_back();
@@ -202,16 +211,13 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
           push_heap(heap.begin(),heap.end());
         }
       }
-      /*
-      for(size_t i=0; i<numwords; i++) {
-        cout << "Id: " << heap.front().id << "  Bwtpos: " << *(heap.front().bwtpos) << endl;
-        pop_heap(heap.begin(),heap.end()); 
-        heap.pop_back();
-      }
-      cout << "----------\n"; */   
     }
   }  
   assert(full_words==dwords);
+  cout << "Full words: " << full_words << endl;
+  cout << "Easy bwt chars: " << easy_bwts << endl;
+  cout << "Hard bwt chars: " << hard_bwts << endl;
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
   fclose(fbwt);
   delete[] lcp;
   delete[] sa;
@@ -286,6 +292,7 @@ int main(int argc, char** argv)
   if(e%4!=0) die("invalid ilist file");
   long psize = e/4;
   cout  << "Parsing size: " << psize << endl;
+  if(psize>0x7FFFFFFE) die("More than 2^31 -2 words in the parsing");
   uint32_t *ilist = new uint32_t[psize];  
   rewind(g);
   e = fread(ilist,4,psize,g);

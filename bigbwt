@@ -17,8 +17,8 @@ takes 9n bytes; if this is a problem just don't use the option -c
 
 parse_exe = "./newscan.x"
 parsebwt_exe = "./bwtparse"
-parsebwt_exe64 = "./bwtparse64"
 pfbwt_exe = "./pfbwt.x"
+pfbwt_exe64 = "./pfbwt64.x"
 bwt_exe = "./simplebwt"
 bwt_exe64 = "./simplebwt64"
 
@@ -47,7 +47,10 @@ def main():
 
     start = time.time()  
     if(os.path.getsize(args.input+".parse") >=  4*(2**31-4) ):
-      command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
+      print("Sorry, the parse contains %d words" %  (os.path.getsize(args.input+".parse")/4) )
+      print("which is more than my current limit 2^31-4")
+      print("Please re-run the program with a larger modulus (currently %d)" % args.mod)
+      sys.exit(1)  
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
     print("==== Computing BWT of parsing. Command:", command)
@@ -55,8 +58,11 @@ def main():
       return
     print("Elapsed time: {0:.4f}".format(time.time()-start));      
         
-    start = time.time()        
-    command = "{exe} {wsize} {file}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input)
+    start = time.time()     
+    if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
+      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)
+    else:  
+      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input)
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return

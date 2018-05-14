@@ -41,7 +41,7 @@ static const int log_operations = 0;    /* <-- set this to 1 for log output */
 static const size_t log_operations_threshold = 1024*1024;
 
 /* option to use gcc's intrinsics to do thread-safe statistics operations */
-#define THREAD_SAFE_GCC_INTRINSICS      0
+#define THREAD_SAFE_GCC_INTRINSICS      1
 
 /* to each allocation additional data is added for bookkeeping. due to
  * alignment requirements, we can optionally add more than just one integer. */

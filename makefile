@@ -3,7 +3,7 @@ CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g
 CFLAGS=-O2 -Wall -std=c99 -g
 CC=gcc
 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x  
+EXECS=bwtparse simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x 
 
 all: $(EXECS)
 
@@ -15,9 +15,6 @@ gsacak64.o: gsacak.c gsacak.h
 
 bwtparse: bwtparse.c gsacak.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl
-
-bwtparse64: bwtparse.c gsacak64.o malloc_count.o
-	$(CC) $(CFLAGS) -o $@ $^ -DM64 -ldl
 
 simplebwt: simplebwt.c gsacak.o
 	$(CC) $(CFLAGS) -o $@ $^
@@ -34,6 +31,9 @@ newscan.x: newscan.cpp malloc_count.o
 
 pfbwt.x: pfbwt.cpp gsacak.o malloc_count.o 
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
+
+pfbwt64.x: pfbwt.cpp gsacak64.o malloc_count.o 
+	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DM64
 
 # scanfq executable to process gzipped fastq files  
 scanfq.x: scanfq.cpp
