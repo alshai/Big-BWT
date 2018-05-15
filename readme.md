@@ -5,9 +5,6 @@ described in *Prefix-Free Parsing for Building Big BWTs* by
 Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini [1].
 
 Copyrights 2018 by the authors. 
-
-
-## *This code is made available for evaluation purposes only. Please do not distribute, witouth the authors' permission*
  
 
 ## Installation
