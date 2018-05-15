@@ -1,8 +1,8 @@
 # Big-BWT
 
-Tool to build the BWT for higly repetive files using the approach
+Tool to build the BWT for higly repetitive files using the approach
 described in *Prefix-Free Parsing for Building Big BWTs* by 
-Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini.
+Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini [1].
 
 Copyrights 2018 by the authors. 
 
@@ -32,5 +32,9 @@ If you don't trust the output run bigbwt with option `-c`. This will compute the
 
 ## References
 
-\[1\] Nong, G., Practical linear-time O(1)-workspace suffix sorting for constant alphabets, ACM Trans. Inform. Syst., vol. 31, no. 3, pp. 1-15, 2013
+\[1\]  Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini 
+*Prefix-Free Parsing for Building Big BWTs* [CoRR abs/1803.11245](https://arxiv.org/abs/1803.11245), 2018
+
+\[2\] Nong, G., 
+*Practical linear-time O(1)-workspace suffix sorting for constant alphabets*, ACM Trans. Inform. Syst., vol. 31, no. 3, pp. 1-15, 2013
 
