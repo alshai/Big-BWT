@@ -1,12 +1,12 @@
-/* ******************************************************************************
+/* **************************************************************************
  * pfbwt.cpp
- *  * 
+ *  
  * Usage:
  *   pfbwt.x wsize file
  *
  * See newscan.cpp for usage 
  * 
- */
+ **************************************************************************** */
 #include <assert.h>
 #include <errno.h>
 #include <unistd.h>
@@ -25,36 +25,32 @@
 #include <map>
 extern "C" {
 #include "gsacak.h"
+#include "utils.h"
 }
 
 using namespace std;
 using namespace __gnu_cxx;
 
-#define Dollar 2     // special char for the parsing algorithm, must be the highest special char 
-#define EndOfWord 1  // word delimiter for the plain dictionary file
-#define EndOfDict 0  // end of dictionary delimiter 
 
-
+// class representing the suffix of a dictionary word
 struct SeqId {
-  uint32_t id;       // id of the sequence
-  int remaining;     // remaining copies to be considered  
-  uint32_t *bwtpos;  // list of bwt positions for this id
-  uint8_t char2write;// char to be writte 
+  uint32_t id;       // lex. id of the dictionary word to which the suffix belongs
+  int remaining;     // remaining copies of the suffix to be considered  
+  uint32_t *bwtpos;  // list of bwt positions of this dictionary word
+  uint8_t char2write;// char to be written (is the one preceeding the suffix)
 
   // constructor
   SeqId(uint32_t i, int r, uint32_t *b, int8_t c) : id(i), remaining(r), bwtpos(b) {
     char2write = c;
   }
 
-  // got to the next bwt position, return false if there are no more positions 
+  // advance to the next bwt position, return false if there are no more positions 
   bool next() {
     remaining--;
     bwtpos += 1;
-    return remaining >0;
+    return remaining>0;
   }
-    
   bool operator<(const SeqId& a);
-  
 };
 
 bool SeqId::operator<(const SeqId& a) {
@@ -62,15 +58,7 @@ bool SeqId::operator<(const SeqId& a) {
 }
 
 
-
-void die(string s)
-{
-  perror(s.c_str());
-  exit(1);
-}
-
-
-// binary search for x in an array a[0..n-1] that does not contain x
+// binary search for x in an array a[0..n-1] that doesn't contain x
 // return the lowest position that is larger than x
 long binsearch(uint_t x, uint_t a[], long n)
 {
@@ -88,7 +76,7 @@ long binsearch(uint_t x, uint_t a[], long n)
 
 // return the length of the suffix starting in position p.
 // also write to seqid the id of the sequence containing that suffix 
-// n is the 3 of distinct words in the dictionary 
+// n is the # of distinct words in the dictionary, hence the length of eos[]
 int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 {
   assert(p<eos[n-1]);
@@ -97,48 +85,78 @@ int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
   return eos[*seqid] - p;
 }
 
-void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, uint32_t istart[], long dwords, int w, string name)
+// compute the SA and LCP array for the set of (unique) dictionary words
+// using gSACA-K. Also do some checking based on the number on order of the special symbols
+void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
+                          uint_t **sap, int_t **lcpp) // output parameters
 {
-  
-  // compute sa and bwt of d
   uint_t *sa = new uint_t[dsize];
   int_t *lcp = new int_t[dsize];
-  (void) psize; // can be useful in assertions
+  (void) dwords; (void) w;
 
   cout << "Computing SA and LCP of dictionary" << endl; 
   time_t  start = time(NULL);
   gsacak(d,sa,lcp,NULL,dsize);
   cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
-  // do some checking on the sa
+  // ------ do some checking on the sa
   assert(d[dsize-1]==EndOfDict);
-  assert(sa[0]==(unsigned long)dsize-1);
+  assert(sa[0]==(unsigned long)dsize-1);// sa[0] is the EndOfDict symbol 
   for(long i=0;i<dwords;i++) 
-    assert(d[sa[i+1]]==EndOfWord); // there are dwords eos symbols  
+    assert(d[sa[i+1]]==EndOfWord); // there are dwords EndOfWord symbols 
+  // EndOf word symbols are in position order, so the last is d[dsize-2]    
   assert(sa[dwords]==(unsigned long)dsize-2);  
+  // there are wsize+1 $ symbols: 
+  // one at the beginning of the first word, wsize at the end of the last word
   for(long i=0;i<=w;i++)
-    assert(d[sa[i+dwords+1]]==Dollar); // there are wsize+1 $ symbols        
-  // in sa[dwords+w+1] we have the first word in the parsing   
+    assert(d[sa[i+dwords+1]]==Dollar);         
+  // in sa[dwords+w+1] we have the first word in the parsing since that $ is the lex. larger  
   assert(d[0]==Dollar);
   assert(sa[dwords+w+1]==0);
-  assert(lcp[dwords+w+2]==0); // end of Dollar chars 
+  assert(d[dwords+w+2]>Dollar);  // end of Dollar chars 
+  assert(lcp[dwords+w+2]==0); 
+  // copy sa and lcp address
+  *sap = sa;  *lcpp = lcp;  
+}
+
+
+/* *******************************************************************
+ * Computation of the final BWT
+ * 
+ * istart[] and islist[] are used together. For each dictionary word i 
+ * (considered in lexicographic order) for k=istart[i]...istart[i+1]-1
+ * ilist[k] contains the ordered positions in BWT(P) containing word i 
+ * ******************************************************************* */
+void bwt(uint8_t *d, long dsize, // dictionary and its size  
+         uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
+         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
+         int w, char *name)             // window size and base name for output file
+{  
+  (void) psize; // used only in assertions
+  
+  // compute sa and bwt of d and do some checking on them 
+  uint_t *sa; int_t *lcp; 
+  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
   // set d[0] ==0 as this is the EOF char in the final BWT
+  assert(d[0]==Dollar);
   d[0]=0;
+
   // derive eos from sa. for i=0...dwords-1, eos[i] is the eos position of string i in d
   uint_t *eos = sa+1;
+  for(int i=0;i<dwords-1;i++)
+    assert(eos[i]<eos[i+1]);
 
   // open output file 
-  FILE *fbwt = fopen(name.c_str(),"wb");
-  if(fbwt==NULL) die("Open bwt file");
-  
-  // main loop
-  start = time(NULL);
+  FILE *fbwt = open_aux_file(name,"bwt","wb");
+    
+  // main loop: consider each entry in the SA of dict
+  time_t start = time(NULL);
   long full_words = 0; 
   long easy_bwts = 0;
   long hard_bwts = 0;
   long next;
   uint32_t seqid;
   for(long i=dwords+w+1; i< dsize; i=next ) {
-    // we are considering t[sa[i]....]
+    // we are considering d[sa[i]....]
     next = i+1;  // prepare for next iteration  
     int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
     // ignore suffixes of lenght <= w
@@ -148,15 +166,15 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
       full_words++;
       for(uint32_t j=istart[seqid];j<istart[seqid+1];j++)
         if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
-      continue;
+      continue; // proceed with next i 
     }
     // hard case: there can be a group of equal suffixes starting at i
-    // push seqid
+    // save seqid and the corresponding char 
     vector<uint32_t> id2merge(1,seqid); 
     vector<uint8_t> char2write(1,d[sa[i]-1]);
     while(next<dsize && lcp[next]>=suffixLen) {
       assert(lcp[next]==suffixLen);  // the lcp cannot be greater than suffixLen
-      assert(sa[next]>0 && d[sa[next]-1]!=EndOfWord); // sa[end] cannot be a full word
+      assert(sa[next]>0 && d[sa[next]-1]!=EndOfWord); // sa[next] cannot be a full word
       int_t nextsuffixLen = getlen(sa[next],eos,dwords,&seqid);
       assert(nextsuffixLen>=suffixLen);
       if(nextsuffixLen==suffixLen) {
@@ -223,7 +241,7 @@ void bwt(uint8_t d[], long dsize, uint32_t ilist[], uint8_t last[], long psize, 
   delete[] sa;
 }  
 
-// compute the numbber of words in a dictionary
+// compute the number of words in a dictionary
 long get_num_words(uint8_t *d, long n)
 {
   long i,num=0;
@@ -247,13 +265,10 @@ int main(int argc, char** argv)
   puts("");
 
   // translate command line parameters
-  int w = atoi(argv[1]);             // sliding window size 
-  string fname(argv[2]);              // basename for input files   
+  int w = atoi(argv[1]);             // sliding window size   
 
   // read dictionary file 
-  string name = fname + ".dict";
-  FILE *g = fopen(name.c_str(),"rb");
-  if(g==NULL) die("Open dict file");
+  FILE *g = open_aux_file(argv[2],"dict","rb");
   fseek(g,0,SEEK_END);
   long dsize = ftell(g);
   if(dsize<0) die("ftell");
@@ -266,16 +281,14 @@ int main(int argc, char** argv)
   fclose(g);
   
   // read occ file
-  name = fname + ".occ";
-  g = fopen(name.c_str(),"rb");
-  if(g==NULL) die("Open occ file");
+  g = open_aux_file(argv[2],"occ","rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell 2");
   if(e%4!=0) die("invalid occ file");
   int dwords = e/4;
   cout  << "Dictionary words: " << dwords << endl;
-  uint32_t *occ = new uint32_t[dwords+1];  
+  uint32_t *occ = new uint32_t[dwords+1];  // dwords+1 since istart overwrites occ
   rewind(g);
   e = fread(occ,4,dwords,g);
   if(e!=dwords) die("fread 2");
@@ -283,27 +296,23 @@ int main(int argc, char** argv)
   assert(dwords==get_num_words(d,dsize));
 
   // read ilist file 
-  name = fname + ".ilist";
-  g = fopen(name.c_str(),"rb");
-  if(g==NULL) die("Open ilist file");
+  g = open_aux_file(argv[2],"ilist","rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
   if(e<0) die("ftell 3");
   if(e%4!=0) die("invalid ilist file");
   long psize = e/4;
   cout  << "Parsing size: " << psize << endl;
-  if(psize>0x7FFFFFFE) die("More than 2^31 -2 words in the parsing");
+  if(psize>0xFFFFFFFEL) die("More than 2^32 -2 words in the parsing");
   uint32_t *ilist = new uint32_t[psize];  
   rewind(g);
   e = fread(ilist,4,psize,g);
   if(e!=psize) die("fread 3");
   fclose(g);
-  assert(ilist[0]==1); // EOF is in PBWT[1]
+  assert(ilist[0]==1); // EOF is in PBWT[1] 
 
   // read bwlast file 
-  name = fname + ".bwlast";
-  g = fopen(name.c_str(),"rb");
-  if(g==NULL) die("Open bwlast file");
+  g = open_aux_file(argv[2],"bwlast","rb");  
   cout  << "bwlast file size: " << psize << endl;
   uint8_t *bwlast = new uint8_t[psize];  
   e = fread(bwlast,1,psize,g);
@@ -311,7 +320,8 @@ int main(int argc, char** argv)
   fclose(g);
 
   // convert occ entries into starting positions inside ilist
-  uint32_t last=1;
+  // ilist also contains the position of EOF but we don't care about it since it is not in dict 
+  uint32_t last=1; // starting position in ilist of the smallest dictionary word  
   for(long i=0;i<dwords;i++) {
     uint32_t tmp = occ[i];
     occ[i] = last;
@@ -319,8 +329,11 @@ int main(int argc, char** argv)
   }
   assert(last==psize);
   occ[dwords]=psize;
-      
-  bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,fname+".bwt");
+  // extra check: the smallest dictionary word is d0 =$.... that occurs once
+  assert(occ[1]==occ[0]+1);
+  
+  // compute and write the final bwt 
+  bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   
   delete[] bwlast;
   delete[] ilist;

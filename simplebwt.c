@@ -1,13 +1,24 @@
+/* ******************************************************************
+ * simplebwt
+ * Given a text T compute the its bwt via the suffix array using the 
+ * SACA-K algorithm.
+ * The input file cannot contain the 0x0 char that is used int the BWT as 
+ * the EOF symbol. The output file has extension .Bwt and length |T|+1
+ * 
+ * If compiled with M64=1 uses 64 bit uints for the suffix array; 
+ * uses 9n bytes and the input can be as large as 2^63-1
+ * Othewise uses 32 bit utints fr the SA: uses 5n bytes bu the input 
+ * can be of length at most 2^31 -1
+ * ****************************************************************** */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-
 #include "gsacak.h"
 
 
-void die(char *s)
+void die(const char *s)
 {
   perror(s);
   exit(1);

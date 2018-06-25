@@ -12,11 +12,12 @@ used internally by the algorithm. The character 0 is used as the EOF
 in the output BWT. The dictionary and the parse should not be larger than 2GB. 
 
 Input files larger than 2GB are ok, but computing the BWT in the traditional way
-takes 9n bytes; if this is a problem just don't use the option -c
+takes 9n bytes of RAM. If this is a problem, just don't use the option -c
 """
 
 parse_exe = "./newscan.x"
 parsebwt_exe = "./bwtparse"
+parsebwt_exe64 = "./bwtparse64"
 pfbwt_exe = "./pfbwt.x"
 pfbwt_exe64 = "./pfbwt64.x"
 bwt_exe = "./simplebwt"
@@ -36,7 +37,7 @@ def main():
   print("Sending logging messages to file:", logfile_name)
   with open(logfile_name,"w") as logfile:  
     
-    
+    # ---------- parsing of the input file 
     start0 = start = time.time()
     command = "{exe} {wsize} {modulus} {file}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
@@ -45,19 +46,24 @@ def main():
       return
     print("Elapsed time: {0:.4f}".format(time.time()-start))      
 
-    start = time.time()  
-    if(os.path.getsize(args.input+".parse") >=  4*(2**31-4) ):
-      print("Sorry, the parse contains %d words" %  (os.path.getsize(args.input+".parse")/4) )
-      print("which is more than my current limit 2^31-4")
+    # ----------- computation of the BWT of the parsing
+    start = time.time()
+    parse_size = os.path.getsize(args.input+".parse")/4
+    if(parse_size >=  (2**32-1) ):
+      print("Sorry, the parse contains %d words" %  parse_size )
+      print("which is more than my current limit 2^32-2")
       print("Please re-run the program with a larger modulus (currently %d)" % args.mod)
       sys.exit(1)  
+    elif(parse_size >=  (2**31-1) ):
+      command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
     print("Elapsed time: {0:.4f}".format(time.time()-start));      
-        
+    
+    # ----------- compute final BWT using dictionary and BWT of parse    
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
       command = "{exe} {wsize} {file}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)

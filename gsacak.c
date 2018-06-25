@@ -5,7 +5,10 @@
 const uint_t EMPTY_k=((uint_t)1)<<(sizeof(uint_t)*8-1); 
 
 // get s[i] at a certain level
-#define chr(i) (cs==sizeof(int_t)?((int_t*)s)[i]:((unsigned char *)s)[i])
+
+//#if M64 && LARGE_ALPHABET==0
+#define chr(i) (cs==sizeof(int_t)?((int_t*)s)[i]:(cs==sizeof(int_text)?((int_text*)s)[i]:((unsigned char *)s)[i]))
+//define chr(i) (cs==sizeof(int_t)?((int_t*)s)[i]:((unsigned char *)s)[i])
 
 #define true 1
 #define false 0
@@ -231,7 +234,7 @@ void induceSAl0(uint_t *SA,
 }
 
 void induceSAs0(uint_t *SA,
-  int_t *s, uint_t *bkt,
+  int_t	*s, uint_t *bkt,
   uint_t n, unsigned int K, int_t suffix, int cs) {
   uint_t i, j;
 
@@ -263,7 +266,7 @@ void induceSAl0_generalized(uint_t *SA,
     if(SA[i]>0) {
       j=SA[i]-1;
       if(chr(j)>=chr(j+1) ) {
-  if(chr(j)!=separator)//gsa-is
+	if(chr(j)!=separator)//gsa-is
           SA[bkt[chr(j)]++]=j;
         if(!suffix && i>0) SA[i]=0;
       }
@@ -283,7 +286,7 @@ void induceSAs0_generalized(uint_t *SA,
       j=SA[i]-1;
       if(chr(j)<=chr(j+1) && bkt[chr(j)]<i) {
         if(chr(j)!=separator)
-    SA[bkt[chr(j)]--]=j;
+	  SA[bkt[chr(j)]--]=j;
         if(!suffix) SA[i]=0;
       }
     }
@@ -336,10 +339,10 @@ void induceSAl0_generalized_LCP(uint_t *SA, int_t *LCP,
     if(SA[i]!=U_MAX){
 
       if(LCP[i]==I_MIN){ //is a L/S-seam position
-      int_t l=0;
-    if(SA[bkt[chr(SA[i])]-1]<n-1) 
-        while(chr(SA[i]+l)==chr(SA[bkt[chr(SA[i])]-1]+l))++l;
-      LCP[i]=l;
+  	  int_t l=0;
+	  if(SA[bkt[chr(SA[i])]-1]<n-1)	
+   	    while(chr(SA[i]+l)==chr(SA[bkt[chr(SA[i])]-1]+l))++l;
+  	  LCP[i]=l;
       }
       #if RMQ_L == 1
         uint_t k;
@@ -355,7 +358,7 @@ void induceSAl0_generalized_LCP(uint_t *SA, int_t *LCP,
         }
  
         int_t lcp=max(0,LCP[i]);
-        while(STACK[(top)-1].lcp>=lcp) (top)--; 
+        while(STACK[(top)-1].lcp>=lcp) (top)--;	
 
         stack_push_k(STACK, &top, i+1, lcp);
         j = top-1;
@@ -368,21 +371,21 @@ void induceSAl0_generalized_LCP(uint_t *SA, int_t *LCP,
       if(SA[i]>0) {
         j=SA[i]-1;
         if(chr(j)>=chr(j+1))
-    if(chr(j)!=separator){//gsa-is
+  	if(chr(j)!=separator){//gsa-is
             SA[bkt[chr(j)]]=j;
 
             #if RMQ_L == 1
-          LCP[bkt[chr(j)]]+=M[chr(j)]+1;
-            M[chr(j)] = I_MAX;
+  	      LCP[bkt[chr(j)]]+=M[chr(j)]+1;
+    	      M[chr(j)] = I_MAX;
             #elif RMQ_L == 2
-          LCP[bkt[chr(j)]]+=min_lcp+1; 
+  	      LCP[bkt[chr(j)]]+=min_lcp+1; 
             #endif
   
             bkt[chr(j)]++;
-  }
-        if(bkt[chr(SA[i])]-1<i){ //if is LMS-type
-    if(chr(SA[i])!=separator)
-    SA[i]=U_MAX;
+	}
+      	if(bkt[chr(SA[i])]-1<i){ //if is LMS-type
+	  if(chr(SA[i])!=separator)
+	  SA[i]=U_MAX;
         }
 
       }
@@ -402,10 +405,10 @@ void induceSAl0_generalized_LCP(uint_t *SA, int_t *LCP,
             while(STACK[curr].idx<tmp[j]+1) curr++;
 
             if(curr<top){
-        stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
-        curr++;
+	      stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
+	      curr++;
             }
-    }
+	  }
         }
  
         if(end>=STACK_SIZE_L){
@@ -454,41 +457,41 @@ void induceSAs0_generalized_LCP(uint_t *SA, int_t* LCP,
       j=SA[i]-1;
       if(chr(j)<=chr(j+1) && bkt[chr(j)]<i)// induce S-type
         if(chr(j)!=separator){
-    SA[bkt[chr(j)]]=j;
+	  SA[bkt[chr(j)]]=j;
 
           #if RMQ_S == 1
-        if(LCP[bkt[chr(j)]+1]>=0) 
-          LCP[bkt[chr(j)]+1]=M[chr(j)]+1;
-      
-      if(LCP[bkt[chr(j)]]>0) 
-          LCP[bkt[chr(j)]]=I_MAX;
+  	    if(LCP[bkt[chr(j)]+1]>=0) 
+  	      LCP[bkt[chr(j)]+1]=M[chr(j)]+1;
+  	  
+	    if(LCP[bkt[chr(j)]]>0) 
+  	      LCP[bkt[chr(j)]]=I_MAX;
 
           #elif RMQ_S == 2
             int_t min = I_MAX, end = top-1; 
   
-        int_t last=last_occ[chr(j)];
+  	    int_t last=last_occ[chr(j)];
             while(STACK[end].idx<=last) end--;
   
             min=STACK[(end+1)].lcp;
             last_occ[chr(j)] = i;
   
-        if(LCP[bkt[chr(j)]+1]>=0) 
+  	    if(LCP[bkt[chr(j)]+1]>=0) 
               LCP[bkt[chr(j)]+1]=min+1;
           #endif
   
 
           #if RMQ_S == 1
-      M[chr(j)] = I_MAX;
+  	  M[chr(j)] = I_MAX;
           #endif
   
           bkt[chr(j)]--;
  
-      if(SA[bkt[chr(j)]]!=U_MAX) {//L/S-seam
-            int_t l=0;  
+  	  if(SA[bkt[chr(j)]]!=U_MAX) {//L/S-seam
+            int_t l=0;	
             while(chr(SA[bkt[chr(j)]+1]+l)==chr(SA[bkt[chr(j)]]+l))++l;
             LCP[bkt[chr(j)]+1]=l;
-      }
-    }
+  	  }
+  	}
      }
 
     if(LCP[i]<0) LCP[i]=0;
@@ -510,14 +513,14 @@ void induceSAs0_generalized_LCP(uint_t *SA, int_t* LCP,
 
           int_t curr=1, end=1;
 
-     for(j=K-1;j>=0; j--){
+	   for(j=K-1;j>=0; j--){
 
             if(tmp[j] < STACK[end-1].idx){
 
-          while(STACK[curr].idx>tmp[j] && curr < top) curr++;
-        if(curr>=top) break;
-        stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
-        curr++;
+  	      while(STACK[curr].idx>tmp[j] && curr < top) curr++;
+	      if(curr>=top) break;
+	      stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
+	      curr++;
             }
           } 
 
@@ -559,10 +562,10 @@ void induceSAl0_generalized_DA(uint_t *SA, int_t* DA,
     if(SA[i]>0) {
       j=SA[i]-1;
       if(chr(j)>=chr(j+1) ) {
-      if(chr(j)!=separator){//gsa-is
+	    if(chr(j)!=separator){//gsa-is
           SA[bkt[chr(j)]]=j;
           DA[bkt[chr(j)]++]=DA[i];
-      }
+	    }
       }
     }
 }
@@ -580,9 +583,9 @@ void induceSAs0_generalized_DA(uint_t *SA, int_t* DA,
       j=SA[i]-1;
       if(chr(j)<=chr(j+1) && bkt[chr(j)]<i) {
         if(chr(j)!=separator){
-      SA[bkt[chr(j)]]=j;
-      DA[bkt[chr(j)]--]=DA[i];
-      }
+		  SA[bkt[chr(j)]]=j;
+		  DA[bkt[chr(j)]--]=DA[i];
+	    }
       }
     }
 }
@@ -634,10 +637,10 @@ void induceSAl0_generalized_LCP_DA(uint_t *SA, int_t *LCP, int_t *DA,
     if(SA[i]!=U_MAX){
 
       if(LCP[i]==I_MIN){ //is a L/S-seam position
-      int_t l=0;
-    if(SA[bkt[chr(SA[i])]-1]<n-1) 
-        while(chr(SA[i]+l)==chr(SA[bkt[chr(SA[i])]-1]+l))++l;
-      LCP[i]=l;
+  	  int_t l=0;
+	  if(SA[bkt[chr(SA[i])]-1]<n-1)	
+   	    while(chr(SA[i]+l)==chr(SA[bkt[chr(SA[i])]-1]+l))++l;
+  	  LCP[i]=l;
       }
       #if RMQ_L == 1
         uint_t k;
@@ -653,7 +656,7 @@ void induceSAl0_generalized_LCP_DA(uint_t *SA, int_t *LCP, int_t *DA,
         }
  
         int_t lcp=max(0,LCP[i]);
-        while(STACK[(top)-1].lcp>=lcp) (top)--; 
+        while(STACK[(top)-1].lcp>=lcp) (top)--;	
 
         stack_push_k(STACK, &top, i+1, lcp);
         j = top-1;
@@ -666,22 +669,22 @@ void induceSAl0_generalized_LCP_DA(uint_t *SA, int_t *LCP, int_t *DA,
       if(SA[i]>0) {
         j=SA[i]-1;
         if(chr(j)>=chr(j+1))
-    if(chr(j)!=separator){//gsa-is
+  	if(chr(j)!=separator){//gsa-is
             SA[bkt[chr(j)]]=j;
             DA[bkt[chr(j)]]=DA[i];
 
             #if RMQ_L == 1
-          LCP[bkt[chr(j)]]+=M[chr(j)]+1;
-            M[chr(j)] = I_MAX;
+  	      LCP[bkt[chr(j)]]+=M[chr(j)]+1;
+    	      M[chr(j)] = I_MAX;
             #elif RMQ_L == 2
-          LCP[bkt[chr(j)]]+=min_lcp+1; 
+  	      LCP[bkt[chr(j)]]+=min_lcp+1; 
             #endif
   
             bkt[chr(j)]++;
-  }
-        if(bkt[chr(SA[i])]-1<i){ //if is LMS-type
-    if(chr(SA[i])!=separator)
-    SA[i]=U_MAX;
+	}
+      	if(bkt[chr(SA[i])]-1<i){ //if is LMS-type
+	  if(chr(SA[i])!=separator)
+	  SA[i]=U_MAX;
         }
 
       }
@@ -701,10 +704,10 @@ void induceSAl0_generalized_LCP_DA(uint_t *SA, int_t *LCP, int_t *DA,
             while(STACK[curr].idx<tmp[j]+1) curr++;
 
             if(curr<top){
-        stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
-        curr++;
+	      stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
+	      curr++;
             }
-    }
+	  }
         }
  
         if(end>=STACK_SIZE_L){
@@ -753,42 +756,42 @@ void induceSAs0_generalized_LCP_DA(uint_t *SA, int_t* LCP, int_t* DA,
       j=SA[i]-1;
       if(chr(j)<=chr(j+1) && bkt[chr(j)]<i)// induce S-type
         if(chr(j)!=separator){
-    SA[bkt[chr(j)]]=j;
+	  SA[bkt[chr(j)]]=j;
       DA[bkt[chr(j)]]=DA[i];
       
           #if RMQ_S == 1
-        if(LCP[bkt[chr(j)]+1]>=0) 
-          LCP[bkt[chr(j)]+1]=M[chr(j)]+1;
-      
-      if(LCP[bkt[chr(j)]]>0) 
-          LCP[bkt[chr(j)]]=I_MAX;
+  	    if(LCP[bkt[chr(j)]+1]>=0) 
+  	      LCP[bkt[chr(j)]+1]=M[chr(j)]+1;
+  	  
+	    if(LCP[bkt[chr(j)]]>0) 
+  	      LCP[bkt[chr(j)]]=I_MAX;
 
           #elif RMQ_S == 2
             int_t min = I_MAX, end = top-1; 
   
-        int_t last=last_occ[chr(j)];
+  	    int_t last=last_occ[chr(j)];
             while(STACK[end].idx<=last) end--;
   
             min=STACK[(end+1)].lcp;
             last_occ[chr(j)] = i;
   
-        if(LCP[bkt[chr(j)]+1]>=0) 
+  	    if(LCP[bkt[chr(j)]+1]>=0) 
               LCP[bkt[chr(j)]+1]=min+1;
           #endif
   
 
           #if RMQ_S == 1
-      M[chr(j)] = I_MAX;
+  	  M[chr(j)] = I_MAX;
           #endif
   
           bkt[chr(j)]--;
  
-      if(SA[bkt[chr(j)]]!=U_MAX) {//L/S-seam
-            int_t l=0;  
+  	  if(SA[bkt[chr(j)]]!=U_MAX) {//L/S-seam
+            int_t l=0;	
             while(chr(SA[bkt[chr(j)]+1]+l)==chr(SA[bkt[chr(j)]]+l))++l;
             LCP[bkt[chr(j)]+1]=l;
-      }
-    }
+  	  }
+  	}
      }
 
     if(LCP[i]<0) LCP[i]=0;
@@ -810,14 +813,14 @@ void induceSAs0_generalized_LCP_DA(uint_t *SA, int_t* LCP, int_t* DA,
 
           int_t curr=1, end=1;
 
-     for(j=K-1;j>=0; j--){
+	   for(j=K-1;j>=0; j--){
 
             if(tmp[j] < STACK[end-1].idx){
 
-          while(STACK[curr].idx>tmp[j] && curr < top) curr++;
-        if(curr>=top) break;
-        stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
-        curr++;
+  	      while(STACK[curr].idx>tmp[j] && curr < top) curr++;
+	      if(curr>=top) break;
+	      stack_push_k(STACK, &end, STACK[curr].idx, STACK[curr].lcp);
+	      curr++;
             }
           } 
 
@@ -1142,7 +1145,7 @@ void putSubstr1(int_t *SA, int_t *s, int_t n, int cs) {
   SA[0]=n-1;
 }
 
-uint_t getLengthOfLMS(int_t *s, 
+uint_t getLengthOfLMS(int_t	*s, 
   uint_t n, int level, uint_t x, int cs) {
   if(x==n-1) return 1;  
   
@@ -1374,16 +1377,16 @@ void getSAlms_DA(uint_t *SA, int_t* DA,
   j=n1-1; s1[j--]=n-1;
   succ_t=0; // s[n-2] must be L-type
   for(i=n-2; i>0; i--) {
-    
-  if(chr(i)==separator)k--;
+	  
+	if(chr(i)==separator)k--;
 
     cur_t=(chr(i-1)<chr(i) ||
           (chr(i-1)==chr(i) && succ_t==1))?1:0;
     if(cur_t==0 && succ_t==1){//LMS-suffix
-    s1[j]=i;
-    DA[j]=k;
-    j--;
-  }
+		s1[j]=i;
+		DA[j]=k;
+		j--;
+	}
     succ_t=cur_t;
   }
   
@@ -1392,7 +1395,7 @@ void getSAlms_DA(uint_t *SA, int_t* DA,
 
 /*****************************************************************************/
 
-int_t SACA_K(int_t *s, uint_t *SA,
+int_t SACA_K(int_t	*s, uint_t *SA,
   uint_t n, unsigned int K,
   uint_t m, int cs, int level) {
   uint_t i;
@@ -1410,8 +1413,8 @@ int_t SACA_K(int_t *s, uint_t *SA,
 
   #if PHASES
   if(!level){
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   }
   #endif
 
@@ -1448,15 +1451,15 @@ int_t SACA_K(int_t *s, uint_t *SA,
 
   #if PHASES
   if(!level){
-  printf("phase 1:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 1:\n");
+	time_stop(t_start_phase, c_start_phase);
   }
   #endif
 
   #if PHASES
   if(!level){
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   }
   #endif
 
@@ -1543,8 +1546,8 @@ int_t gSACA_K(uint_t *s, uint_t *SA,
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
   // stage 1: reduce the problem by at least 1/2.
 
@@ -1576,13 +1579,13 @@ int_t gSACA_K(uint_t *s, uint_t *SA,
   name_ctr=nameSubstr_generalized(SA,s,s1,n,m,n1,level,cs,separator);
 
   #if PHASES
-  printf("phase 1:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 1:\n");
+	time_stop(t_start_phase, c_start_phase);
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
 
   // stage 2: solve the reduced problem.
@@ -1604,13 +1607,13 @@ int_t gSACA_K(uint_t *s, uint_t *SA,
   putSuffix0_generalized(SA, s, bkt, n, K, n1, cs, separator);
   
   #if PHASES
-  printf("phase 2:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 2:\n");
+	time_stop(t_start_phase, c_start_phase);
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
 
   induceSAl0_generalized(SA, s, bkt, n, K, true, cs, separator);
@@ -1662,8 +1665,8 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
   // stage 1: reduce the problem by at least 1/2.
 
@@ -1682,7 +1685,7 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   #if DEBUG
   printf("L-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -1692,7 +1695,7 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   #if DEBUG
   printf("S-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -1706,7 +1709,7 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   #if DEBUG
   printf("S-type (separators)\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -1751,13 +1754,13 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   #endif
 
   #if PHASES
-  printf("phase 1:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 1:\n");
+	time_stop(t_start_phase, c_start_phase);
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
 
   // stage 2: solve the reduced problem.
@@ -1846,15 +1849,15 @@ int_t gSACA_K_LCP(uint_t *s, uint_t *SA, int_t *LCP,
   
   #if PHASES
   if(!level){
-  printf("phase 2:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 2:\n");
+	time_stop(t_start_phase, c_start_phase);
   }
   #endif
 
   #if PHASES
   if(!level){
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   }
   #endif
 
@@ -1946,8 +1949,8 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
   // stage 1: reduce the problem by at least 1/2.
 
@@ -1966,7 +1969,7 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   #if DEBUG
   printf("L-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -1976,7 +1979,7 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   #if DEBUG
   printf("S-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -1990,7 +1993,7 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   #if DEBUG
   printf("S-type (separators)\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -2027,13 +2030,13 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   #endif
 
   #if PHASES
-  printf("phase 1:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 1:\n");
+	time_stop(t_start_phase, c_start_phase);
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
 
   // stage 2: solve the reduced problem.
@@ -2095,15 +2098,15 @@ int_t gSACA_K_DA(uint_t *s, uint_t *SA, int_t *DA,
   
   #if PHASES
   if(!level){
-  printf("phase 2:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 2:\n");
+	time_stop(t_start_phase, c_start_phase);
   }
   #endif
 
   #if PHASES
   if(!level){
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   }
   #endif
 
@@ -2199,8 +2202,8 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
   // stage 1: reduce the problem by at least 1/2.
 
@@ -2219,7 +2222,7 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   #if DEBUG
   printf("L-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -2229,7 +2232,7 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   #if DEBUG
   printf("S-type\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -2243,7 +2246,7 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   #if DEBUG
   printf("S-type (separators)\n");
   for(i=0; i<n; i++)
-  if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
+	if(SA[i]!=0)  printf("%" PRIdN "\t", SA[i]+1);
         else printf("-1\t");
   printf("\n");
   #endif
@@ -2288,13 +2291,13 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   #endif
 
   #if PHASES
-  printf("phase 1:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 1:\n");
+	time_stop(t_start_phase, c_start_phase);
   #endif
 
   #if PHASES
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   #endif
 
   // stage 2: solve the reduced problem.
@@ -2398,15 +2401,15 @@ int_t gSACA_K_LCP_DA(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA,
   
   #if PHASES
   if(!level){
-  printf("phase 2:\n");
-  time_stop(t_start_phase, c_start_phase);
+	printf("phase 2:\n");
+	time_stop(t_start_phase, c_start_phase);
   }
   #endif
 
   #if PHASES
   if(!level){
-  t_start_phase = time(NULL);
-  c_start_phase =  clock();
+	t_start_phase = time(NULL);
+	c_start_phase =  clock();
   }
   #endif
 
@@ -2494,9 +2497,9 @@ int sacak(unsigned char *s, uint_t *SA, uint_t n){
   return SACA_K((int_t*)s, (uint_t*)SA, n, 256, n, sizeof(char), 0);
 }
 
-int sacak_int(int_t *s, uint_t *SA, uint_t n, uint_t k){
+int sacak_int(int_text *s, uint_t *SA, uint_t n, uint_t k){
   if((s == NULL) || (SA == NULL) || (n < 0)) return -1;
-  return SACA_K((int_t*)s, (uint_t*)SA, n, k, n, sizeof(int_t), 0);
+  return SACA_K((int_t*)s, (uint_t*)SA, n, k, n, sizeof(int_text), 0);
 }
 
 int gsacak(unsigned char *s, uint_t *SA, int_t *LCP, int_t *DA, uint_t n){
@@ -2508,26 +2511,26 @@ int gsacak(unsigned char *s, uint_t *SA, int_t *LCP, int_t *DA, uint_t n){
   #endif  
 
   if((LCP == NULL) && (DA == NULL))
-  return gSACA_K((uint_t*)s, SA, n, 256, sizeof(char), 1, 0);
+	return gSACA_K((uint_t*)s, SA, n, 256, sizeof(char), 1, 0);
   else if (DA == NULL)
-  return gSACA_K_LCP((uint_t*)s, SA, LCP, n, 256, sizeof(char), 1, 0);
+	return gSACA_K_LCP((uint_t*)s, SA, LCP, n, 256, sizeof(char), 1, 0);
   else if (LCP == NULL)
-  return gSACA_K_DA((uint_t*)s, SA, DA, n, 256, sizeof(char), 1, 0);
+	return gSACA_K_DA((uint_t*)s, SA, DA, n, 256, sizeof(char), 1, 0);
   else
-  return gSACA_K_LCP_DA((uint_t*)s, SA, LCP, DA, n, 256, sizeof(char), 1, 0);
+	return gSACA_K_LCP_DA((uint_t*)s, SA, LCP, DA, n, 256, sizeof(char), 1, 0);
 }
 
-int gsacak_int(uint_t *s, uint_t *SA, int_t *LCP, int_t *DA, uint_t n, uint_t k){
+int gsacak_int(int_text *s, uint_t *SA, int_t *LCP, int_t *DA, uint_t n, uint_t k){
   if((s == NULL) || (SA == NULL) || (n < 0)) return -1;
   
   if((LCP == NULL) && (DA == NULL))
-  return gSACA_K((uint_t*)s, SA, n, k, sizeof(int_t), 1, 0);
+	return gSACA_K((uint_t*)s, SA, n, k, sizeof(int_text), 1, 0);
   else if (DA == NULL)
-  return gSACA_K_LCP((uint_t*)s, SA, LCP, n, k, sizeof(int_t), 1, 0);
+	return gSACA_K_LCP((uint_t*)s, SA, LCP, n, k, sizeof(int_text), 1, 0);
   else if (LCP == NULL)
-  return gSACA_K_DA((uint_t*)s, SA, DA, n, k, sizeof(int_t), 1, 0);
+	return gSACA_K_DA((uint_t*)s, SA, DA, n, k, sizeof(int_text), 1, 0);
   else
-  return gSACA_K_LCP_DA((uint_t*)s, SA, LCP, DA, n, k, sizeof(int_t), 1, 0);
+	return gSACA_K_LCP_DA((uint_t*)s, SA, LCP, DA, n, k, sizeof(int_text), 1, 0);
 }
 
 /*****************************************************************************/
