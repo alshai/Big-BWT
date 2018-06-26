@@ -1,5 +1,5 @@
 # compilation flag
-CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g 
+CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g
 CFLAGS=-O2 -Wall -std=c99 -g
 CC=gcc
 
@@ -7,42 +7,42 @@ EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x
 
 all: $(EXECS)
 
-gsacak.o: gsacak.c gsacak.h
+gsa/gsacak.o: gsa/gsacak.c gsa/gsacak.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-gsacak64.o: gsacak.c gsacak.h
+gsa/gsacak64.o: gsa/gsacak.c gsa/gsacak.h
 	$(CC) $(CFLAGS) -c -o $@ $< -DM64
 
 utils.o: utils.c utils.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-bwtparse: bwtparse.c gsacak.o utils.o malloc_count.o
+bwtparse: bwtparse.c gsa/gsacak.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl
 
-bwtparse64: bwtparse.c gsacak64.o utils.o malloc_count.o
+bwtparse64: bwtparse.c gsa/gsacak64.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl -DM64
 
-simplebwt: simplebwt.c gsacak.o
+simplebwt: simplebwt.c gsa/gsacak.o
 	$(CC) $(CFLAGS) -o $@ $^
 
-simplebwt64: simplebwt.c gsacak64.o
+simplebwt64: simplebwt.c gsa/gsacak64.o
 	$(CC) $(CFLAGS) -o $@ $^ -DM64
 
-# (new)scan executable to scan gzipped files 
+# cnewscan executable to scan gzipped files (currently not active) 
 c%.x: %.cpp malloc_count.o 
 	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl 
 
 newscan.x: newscan.cpp malloc_count.o  
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
 
-pfbwt.x: pfbwt.cpp gsacak.o utils.o malloc_count.o 
+pfbwt.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o 
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
 
-pfbwt64.x: pfbwt.cpp gsacak64.o utils.o malloc_count.o 
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DM64
-	
+pfbwt64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o 
+	$(CXX) $(CXX_FLAGS) -o $@ $^  -ldl -DM64
+
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp simplebwt.c bwtparse.c gsacak.[ch] utils.[ch] makefile malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
-	rm -f $(EXECS) *.o
+	rm -f $(EXECS) *.o gsa/*.o

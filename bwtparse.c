@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include "gsacak.h"
+#include "gsa/gsacak.h"
 #include "utils.h" 
 
 // Compute the SA of a parsing and its associated BWT. 
@@ -24,9 +24,21 @@
 // Currently, the parsing is assumed to be of length at most 2^32-1
 // so each ilist entry has size 4 bytes. 
 
+// Note: to support in the future parsing longer than 2^32-2, the arrays
+// occ[] F[] and Ilist[] should become of type sa_index_t. However, this
+// would also require to store to file more than 4 bytes per entry for
+// occ[] (file .occ) and Ilist[] (file .ilist) 
+
+
+// -------------------------------------------------------
+// type used to represent an entry in the SA
+// this is currently 32 bit for gsacak and 64 bit for gsacak-64
+// note that here we use sacak (SA computation for a single string of 32 bit symbols) 
+typedef uint_t sa_index_t;
+
 
 // read the parse file 
-int32_t *read_parse(char *basename,long *tsize) 
+uint32_t *read_parse(char *basename,long *tsize) 
 {  
   FILE *parse = open_aux_file(basename,"parse","rb");
   // get file size
@@ -48,21 +60,25 @@ int32_t *read_parse(char *basename,long *tsize)
   // if in 64 bit mode, the number of words is at most 2^32-2 for now
   if(nn/4 > 0xFFFFFFFEu) {
     printf("Input containing more than 2^32-2 phrases!\n");
-    printf("This is currently and hard limit\n");
+    printf("This is currently a hard limit\n");
     exit(1);
   }
   #endif
   printf("Parse file contains %ld words\n",nn/4);
   long n = nn/4;
   // ------ allocate and read text file
-  int32_t *Text = malloc((n+1)*sizeof(*Text));
+  uint32_t *Text = malloc((n+1)*sizeof(*Text));
   if(Text==NULL) die("malloc failed (Text)");
   rewind(parse);
 
   // read the array in one shot
   assert(sizeof(*Text)==4);
   size_t s = fread(Text,sizeof(*Text),n,parse);
-  if(s!=n) {printf("%zu vs %ld\n", s,n); die("read parse error");}
+  if(s!=n) {
+    char *msg=NULL;
+    int e= asprintf(&msg,"read parse error: %zu vs %ld\n", s,n); 
+    (void) e; die(msg);
+  }
   
   if(fclose(parse)!=0) die("parse file close");
   Text[n]=0; // sacak needs a 0 eos 
@@ -74,8 +90,8 @@ int32_t *read_parse(char *basename,long *tsize)
 
 int main(int argc, char *argv[])
 {
-  int32_t *Text;
-  long n;
+  uint32_t *Text; // array of parsing symbols 
+  long n;         // length of Text[] (not including final 0 symbol)
   size_t s;
 
   // check input data
@@ -98,15 +114,13 @@ int main(int argc, char *argv[])
   FILE *lastout = open_aux_file(argv[1],"bwlast","wb");
 
   // ------- compute alphabet size-1
-  
   uint32_t k=0;
   for(long i=0;i<n;i++) {
-    if(Text[i]<0) die("Emergency exit! Alphabet larger than 2^31 (1)");
     if(Text[i]>k) k = Text[i];
   }
-  if(k>=0x7FFFFFFE) die("Emergency exit! Alphabet larger than 2^31 (2)");
+  // if(k>=0x7FFFFFFE) die("Emergency exit! Alphabet larger than 2^31 (2)");
   // -------- alloc and compute SA
-  uint_t *SA = malloc((n+1)*sizeof(*SA));
+  sa_index_t *SA = malloc((n+1)*sizeof(*SA));
   if(SA==NULL) die("malloc failed  (SA)");
   printf("Computing SA of size %ld over an alphabet of size %u\n",n+1,k+1);
   int depth = sacak_int(Text, SA, n+1, k+1);
@@ -123,7 +137,7 @@ int main(int argc, char *argv[])
   if(fclose(lastin)!=0) die("last file close");
   
   // transform SA->BWT and write remapped last array
-  uint_t *BWTsa = SA;
+  sa_index_t *BWTsa = SA;
   assert(n>1);
   assert(SA[0]==n);
   BWTsa[0] = Text[n-1];
@@ -143,22 +157,24 @@ int main(int argc, char *argv[])
   if(fclose(lastout)!=0) die("bwlast close");
   printf("---- %ld bwlast chars written ----\n",n+1);
   free(last);
-  // --- copy BWT to text array
-  int32_t *BWT = Text;
+  
+  // --- copy BWT to text array (symbol by symbol since sizeof could be different)
+  uint32_t *BWT = Text;
   for(long i=0;i<=n;i++)
     BWT[i] = BWTsa[i];
  
   // read # of occ of each char from file .occ
-  uint32_t *occ = malloc((k+1)*4); // extra space for the only occ of 0
+  uint32_t *occ = malloc((k+1)*sizeof(*occ)); // extra space for the only occ of 0
   if(occ==NULL) die("malloc failed (OCC)");
   FILE *occin = open_aux_file(argv[1],"occ","rb");
-  s = fread(occ+1,4, k,occin);
+  s = fread(occ+1,sizeof(*occ), k,occin);
   if(s!=k) die("not enough occ data!");
   occ[0] = 1; // we know there is somewhere a 0 BWT entry 
   fclose(occin);
   // create F vector
-  uint32_t *F = malloc((k+1)*4);
+  uint32_t *F = malloc((k+1)*sizeof(*F));
   if(F==NULL) die("malloc failed (F)");
+  // init F[] using occ[]
   F[0] = 0;
   for(int i=1;i<=k;i++)
     F[i]=F[i-1]+occ[i-1];
@@ -180,7 +196,7 @@ int main(int argc, char *argv[])
   s = fwrite(IList,sizeof(*IList),n+1,ilist);
   if(s!=n+1) die("Ilist write");
   fclose(ilist);
-  printf("---- %ld iflist positions written (%ld bytes) ----\n",n+1,(n+1)*4l);
+  printf("---- %ld ilist positions written (%ld bytes) ----\n",n+1,(n+1)*4l);
   // deallocate
   free(F);
   free(occ);
@@ -188,4 +204,3 @@ int main(int argc, char *argv[])
   free(Text);
   return 0;
 }
-

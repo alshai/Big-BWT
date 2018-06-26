@@ -24,7 +24,7 @@
 #include <vector>
 #include <map>
 extern "C" {
-#include "gsacak.h"
+#include "gsa/gsacak.h"
 #include "utils.h"
 }
 
@@ -86,13 +86,16 @@ int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 }
 
 // compute the SA and LCP array for the set of (unique) dictionary words
-// using gSACA-K. Also do some checking based on the number on order of the special symbols
+// using gSACA-K. Also do some checking based on the number and order of the special symbols
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
                           uint_t **sap, int_t **lcpp) // output parameters
 {
   uint_t *sa = new uint_t[dsize];
   int_t *lcp = new int_t[dsize];
   (void) dwords; (void) w;
+
+  cout  << "Each SA entry: " << sizeof(*sa) << " bytes\n";
+  cout  << "Each LCP entry: " << sizeof(*lcp) << " bytes\n";
 
   cout << "Computing SA and LCP of dictionary" << endl; 
   time_t  start = time(NULL);
@@ -103,7 +106,7 @@ void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w,
   assert(sa[0]==(unsigned long)dsize-1);// sa[0] is the EndOfDict symbol 
   for(long i=0;i<dwords;i++) 
     assert(d[sa[i+1]]==EndOfWord); // there are dwords EndOfWord symbols 
-  // EndOf word symbols are in position order, so the last is d[dsize-2]    
+  // EndOfWord symbols are in position order, so the last is d[dsize-2]    
   assert(sa[dwords]==(unsigned long)dsize-2);  
   // there are wsize+1 $ symbols: 
   // one at the beginning of the first word, wsize at the end of the last word
@@ -158,17 +161,18 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   for(long i=dwords+w+1; i< dsize; i=next ) {
     // we are considering d[sa[i]....]
     next = i+1;  // prepare for next iteration  
+    // compute length of this suffix and sequence it belongs
     int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
     // ignore suffixes of lenght <= w
     if(suffixLen<=w) continue;
-    // simple case: the suffix is a full word 
+    // ----- simple case: the suffix is a full word 
     if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
       full_words++;
-      for(uint32_t j=istart[seqid];j<istart[seqid+1];j++)
+      for(long j=istart[seqid];j<istart[seqid+1];j++)
         if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
       continue; // proceed with next i 
     }
-    // hard case: there can be a group of equal suffixes starting at i
+    // ----- hard case: there can be a group of equal suffixes starting at i
     // save seqid and the corresponding char 
     vector<uint32_t> id2merge(1,seqid); 
     vector<uint8_t> char2write(1,d[sa[i]-1]);
@@ -185,10 +189,11 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
       else break;
     }
     size_t numwords = id2merge.size(); 
+    // numwords dictionary words contains the same suffix
     // case of a single word
     if(numwords==1) {
       uint32_t s = id2merge[0];
-      for(uint32_t j=istart[s];j<istart[s+1];j++)
+      for(long j=istart[s];j<istart[s+1];j++)
         if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
       easy_bwts +=  istart[s+1]- istart[s]; 
       continue;   
@@ -200,7 +205,7 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
     if(samechar) {
       for(size_t i=0; i<id2merge.size(); i++) {
         uint32_t s = id2merge[i];
-        for(uint32_t j=istart[s];j<istart[s+1];j++)
+        for(long j=istart[s];j<istart[s+1];j++)
           if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
         easy_bwts +=  istart[s+1]- istart[s]; 
       }

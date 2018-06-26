@@ -6,16 +6,16 @@
  * the EOF symbol. The output file has extension .Bwt and length |T|+1
  * 
  * If compiled with M64=1 uses 64 bit uints for the suffix array; 
- * uses 9n bytes and the input can be as large as 2^63-1
- * Othewise uses 32 bit utints fr the SA: uses 5n bytes bu the input 
- * can be of length at most 2^31 -1
+ * the overall space is 9n bytes and the input can be as large as 2^63-1
+ * Otherwise uses 32 bit uints for the SA: the overall space is 5n bytes 
+ * but the input can be of length at most 2^31 -1
  * ****************************************************************** */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include "gsacak.h"
+#include "gsa/gsacak.h"
 
 
 void die(const char *s)
@@ -42,8 +42,7 @@ int main(int argc, char *argv[])
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
   puts("");
-  
-  
+    
   // read main file
   char *name;
   FILE *fin = fopen(argv[1],"rb");
@@ -56,7 +55,12 @@ int main(int argc, char *argv[])
   if(Text==NULL) die("malloc 1");
   rewind(fin);
   size_t s = fread(Text,1,n,fin);
-  if(s!=n) {printf("%zu vs %zu\n", s,n); die("read parse error");}
+  if(s!=n) {
+    char *msg=NULL;
+    int e= asprintf(&msg,"read parse error: %zu vs %ld\n", s,n); 
+    (void) e; die(msg);
+  }
+
   Text[n]=0; // sacak needs a 0 eos
   if(fclose(fin)!=0) die("Error closing text file"); 
   // -------- alloc and compute SA
