@@ -39,7 +39,7 @@ using namespace __gnu_cxx;
 static size_t get_bwt_size(char *name);
 long binsearch(uint_t x, uint_t a[], long n);
 int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
-void sa2da(uint_t sa[], int_t lcp[], long dsize, long dwords, int w);
+void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w);
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 
 
@@ -537,10 +537,9 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
   // open output file 
   FILE *fbwt = open_aux_file(name,"bwt","wb");
     
-  // main loop: consider each entry in the SA of dict
   time_t start = time(NULL);
   // convert sa,lcp->da,suflen + bit
-  sa2da(sa,lcp,dsize,dwords,w);
+  sa2da(sa,lcp,d,dsize,dwords,w);
   uint_t *da = sa + (dwords+w+1);
   long dasize= dsize - (dwords+w+1);
   int_t *suflen = lcp + (dwords+w+1);
@@ -548,16 +547,18 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
   cout << "Converting SA->DA took " << difftime(time(NULL),start) << " wall clock seconds\n";    
   lcp = NULL; sa = NULL;
 
+  // main loop: consider each entry in the da[] of dict
   long full_words = 0; 
   long easy_bwts = 0;
   long hard_bwts = 0;
   long next;
   for(long i=0; i< dasize; i=next ) {
-    // we are considering d[sa[i]....]
+    // we are considering d[sa[i]....] belonging to da[i]
     next = i+1;  // prepare for next iteration  
-    // compute length of this suffix and sequence it belongs
+    // discard if it is a small suffix 
     if(suflen[i]<=w) continue;
     uint32_t seqid = da[i]&0x7FFFFFFF;
+    assert(seqid<dwords);
 
     // ----- simple case: the suffix is a full word 
     if(suflen[i]==wlen[i]) {
@@ -572,7 +573,7 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
     vector<uint8_t> char2write(1,d[eos[seqid]-suflen[i]-1]);
     while(next<dasize && suflen[next]==suflen[i]) {
       seqid = da[i]&0x7FFFFFFF;
-      if(da[i]&0x10000000) {
+      if(da[i]&0x80000000) {
         assert(suflen[next]!=wlen[next]);   // the lcp cannot be greater than suffixLen
         id2merge.push_back(seqid);           // sequence to consider
         char2write.push_back(d[eos[seqid]-suflen[next]-1]);  // corresponding char
@@ -738,8 +739,8 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
-  bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
+  bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
+  //bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly
   //bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   
@@ -785,30 +786,37 @@ long binsearch(uint_t x, uint_t a[], long n)
 }
 
 
-// transform sa[], lcp -> da[], suflen[] + 
-// bit telling whether suflen[i]==lcp[i]
-void sa2da(uint_t sa[], int_t lcp[], long dsize, long dwords, int w)
+// transform sa[],lcp[] -> da[], suflen[] + 
+// extra bit telling whether suflen[i]==lcp[i]
+void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w)
 {
   if(dwords>0x7FFFFFFF) {
     cerr << "Too many words in the dictionary. Current limit: 2^31-1\n";
     exit(1);
   }
-  uint_t *eos = sa + 1;  
+  // create eos[] array with ending position in d[] of each word
+  uint_t *eos = sa + 1;
+  int_t *wlen = lcp + 1;
+  // save length of word i in lcp[i+1]==suflen[i] (sa[i+1]=eos[i] is the position of its eos)
+  wlen[0] = eos[0];
+  for(long i=1;i<dwords;i++) {
+    wlen[i] = eos[i]-eos[i-1] -1;
+    assert(d[eos[i-1]]==EndOfWord);
+    assert(d[eos[i-1]+wlen[i]+1]==EndOfWord);
+  }
+  // convert sa,lcp -> da,suflen  
   uint32_t seqid; 
   for(long i=dwords+w+1; i<dsize; i++) {     // we are considering d[sa[i]....]     
     int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
-    assert(seqid<=0x7FFFFFFF);      // seqid uses at most 31 bits
-    assert(suffixLen>=lcp[i]); // sequence length cannot be shorter than lcp
-    if(lcp[i]==suffixLen)      // save da + bit 
-      sa[i] = seqid | (1u << 31); // mark last bit if lcp==suffix_len;
+    assert(seqid<=0x7FFFFFFF);     // seqid uses at most 31 bits
+    assert(suffixLen>=lcp[i]);     // suffix length cannot be shorter than lcp
+    assert(suffixLen<=wlen[seqid]);// suffix length cannot be larger than word length
+    if(lcp[i]==suffixLen)          // save seqid + possibily extra bit 
+      sa[i] = seqid | (1u << 31);  // mark last bit if lcp==suffix_len;
     else 
-      sa[i] = seqid;
-    lcp[i] = suffixLen;      // save suffix length
+      sa[i] = seqid;               // save only seqid = da[i]
+    lcp[i] = suffixLen;            // save suffix length overwriting lcp
   }
-  // save length of word i in lcp[i+1] (sa[i+1] is the position of its eos)
-  lcp[1+0] = eos[0];
-  for(long i=1;i<dwords;i++)
-    lcp[1+i] = eos[i]-eos[i-1];  
 }
 
 

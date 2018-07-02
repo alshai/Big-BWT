@@ -17,7 +17,7 @@
  * The algorithm computes the prefix free parsing of 
  *     T = (0x2)file_content(0x2)^wsize
  * in a dictionary of words D and a parsing P of T in terms of the  
- * dictionary words. Note that the words in the parsing overalp by wsize.
+ * dictionary words. Note that the words in the parsing overlap by wsize.
  * Let d denote the number of words in D and p the number of phrases in 
  * the parsing P
  * 
@@ -35,8 +35,8 @@
  * 
  * file.parse
  * containing the parse P with each word identified with its 1-based lexicographic 
- * rank (ie its position in D). We assume the number of distintc words
- * is at most 2^32-2, so the size is 4p bytes
+ * rank (ie its position in D). We assume the number of distinct words
+ * is at most 2^32-1, so the size is 4p bytes
  * 
  * file.last 
  * contaning the charater in positon w+1 from the end for each dictionary word
