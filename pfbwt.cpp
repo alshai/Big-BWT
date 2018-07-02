@@ -39,6 +39,7 @@ using namespace __gnu_cxx;
 static size_t get_bwt_size(char *name);
 long binsearch(uint_t x, uint_t a[], long n);
 int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
+void sa2da(uint_t sa[], int_t lcp[], long dsize, long dwords, int w);
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 
 
@@ -295,9 +296,9 @@ void tbody(void *v)
 
 
 void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size  
-         uint32_t *ilist, uint8_t *last, long psize, // ilist, last adn their size  
+         uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size  
          uint32_t *istart, long dwords, // starting point in ilist for each word and # words
-         int w, char *name)
+         int w, char *name, int numt)
 {
   (void) psize; // used only in assertions
   // compute sa and bwt of d[] and do some checking on them 
@@ -310,7 +311,7 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
   uint_t *eos = sa+1;
   for(int i=0;i<dwords-1;i++)
     assert(eos[i]<eos[i+1]);
-    
+  
   // save everything in the thread_data structure
   main_data data;
   data.dict = d; data.sa = sa; data.lcp = lcp; data.dsize = dsize; 
@@ -327,13 +328,57 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
   size_t bwt_size= get_bwt_size(name);
   // open output file and map it to the bwt array 
   FILE *fbwt = open_aux_file(name,"bwt","wb+");
+  // make the BWT file of the correct size (otherwise mmap fails)
   if(ftruncate(fileno(fbwt),bwt_size)<0) die("truncate failed");
   data.bwt = (uint8_t *) mmap(NULL,bwt_size,PROT_READ|PROT_WRITE,MAP_SHARED,fileno(fbwt), 0);
   if(data.bwt==MAP_FAILED) die("mmap failed");
   // main loop: consider each entry in the SA of dict
   time_t start = time(NULL);
-  for(long i=dwords+w+1; i< dsize;)
-    i = add_sa_entries(&data,i);        
+  if(numt==0) { // no helper threads
+    for(long i=dwords+w+1; i< dsize;)
+      i = add_sa_entries(&data,i);
+  }
+  else {
+    // create threads
+    // partition BWT chars 
+    uint32_t seqid;
+    long full_words = 0;
+    long next, written = dwords+w+1, entries = 0;
+    for(long i=dwords+w+1; i< dsize; i=next ) {
+      // ---- check if a batch is ready
+      if(entries >= 100000) {
+        printf("%ld -- %ld (%ld)\n",written,written+entries, i);
+        //for(j=written; j< written+entries; )
+        //  j =  add_sa_entries(&data,j);
+        //assert(j==written+entries);
+        written += entries; entries=0;
+      }
+      // we are considering d[sa[i]....]
+      next = i+1;  // prepare for next iteration  
+      int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
+      // ignore suffixes of lenght <= w
+      if(suffixLen<=w) continue;
+      // simple case: the suffix is a full word 
+      if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
+        full_words++;
+        entries += istart[seqid+1] - istart[seqid];
+        continue; // proceed with next i 
+      }
+      // hard case: there can be a group of equal suffixes starting at i
+      entries += istart[seqid+1] - istart[seqid];
+      while(next<dsize && lcp[next]>=suffixLen) {
+        int_t nextsuffixLen = getlen(sa[next],eos,dwords,&seqid);
+        if(nextsuffixLen==suffixLen) {
+          next++;
+          entries += istart[seqid+1] - istart[seqid];
+        }
+        else break;
+      }
+    }
+    assert(full_words==dwords);
+    printf("%ld == %ld\n",written,written+entries);
+    data.full_words = full_words;
+  }
   munmap(data.bwt, 0);
   assert(data.full_words==dwords);
   cout << "Full words: " << data.full_words << endl;
@@ -343,40 +388,6 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
   fclose(fbwt);
   delete[] lcp;
   delete[] sa;
-#if 0 
-  uint32_t seqid;
-  long full_words = 0; 
-  long next, written = 0, ready = 0;
-  for(long i=dwords+w+1; i< dsize; i=next ) {
-    if(ready>100000) {
-      printf("%ld -- %ld (%ld)\n",written,written+ready, i);
-      written += ready; ready=0;
-    }
-    // we are considering d[sa[i]....]
-    next = i+1;  // prepare for next iteration  
-    int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
-    // ignore suffixes of lenght <= w
-    if(suffixLen<=w) continue;
-    // simple case: the suffix is a full word 
-    if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
-      full_words++;
-      ready += istart[seqid+1] - istart[seqid];
-      continue; // proceed with next i 
-    }
-    // hard case: there can be a group of equal suffixes starting at i
-    ready += istart[seqid+1] - istart[seqid];
-    while(next<dsize && lcp[next]>=suffixLen) {
-      int_t nextsuffixLen = getlen(sa[next],eos,dwords,&seqid);
-      if(nextsuffixLen==suffixLen) {
-        next++;
-        ready += istart[seqid+1] - istart[seqid];
-      }
-      else break;
-    }
-  }  
-  assert(full_words==dwords);
-  printf("%ld == %ld\n",written,written+ready);
-#endif    
 }
 
 /* *******************************************************************
@@ -503,6 +514,132 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   delete[] sa;
 }  
 
+
+void bwt_new(uint8_t *d, long dsize, // dictionary and its size  
+         uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
+         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
+         int w, char *name)             // window size and base name for output file
+{  
+  (void) psize; // used only in assertions
+  
+  // compute sa and bwt of d and do some checking on them 
+  uint_t *sa; int_t *lcp; 
+  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
+  // set d[0] ==0 as this is the EOF char in the final BWT
+  assert(d[0]==Dollar);
+  d[0]=0;
+
+  // derive eos from sa. for i=0...dwords-1, eos[i] is the eos position of string i in d
+  uint_t *eos = sa+1;
+  for(int i=0;i<dwords-1;i++)
+    assert(eos[i]<eos[i+1]);
+
+  // open output file 
+  FILE *fbwt = open_aux_file(name,"bwt","wb");
+    
+  // main loop: consider each entry in the SA of dict
+  time_t start = time(NULL);
+  // convert sa,lcp->da,suflen + bit
+  sa2da(sa,lcp,dsize,dwords,w);
+  uint_t *da = sa + (dwords+w+1);
+  long dasize= dsize - (dwords+w+1);
+  int_t *suflen = lcp + (dwords+w+1);
+  int_t *wlen = lcp+1;
+  cout << "Converting SA->DA took " << difftime(time(NULL),start) << " wall clock seconds\n";    
+  lcp = NULL; sa = NULL;
+
+  long full_words = 0; 
+  long easy_bwts = 0;
+  long hard_bwts = 0;
+  long next;
+  for(long i=0; i< dasize; i=next ) {
+    // we are considering d[sa[i]....]
+    next = i+1;  // prepare for next iteration  
+    // compute length of this suffix and sequence it belongs
+    if(suflen[i]<=w) continue;
+    uint32_t seqid = da[i]&0x7FFFFFFF;
+
+    // ----- simple case: the suffix is a full word 
+    if(suflen[i]==wlen[i]) {
+      full_words++;
+      for(long j=istart[seqid];j<istart[seqid+1];j++)
+        if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
+      continue; // proceed with next i 
+    }
+    // ----- hard case: there can be a group of equal suffixes starting at i
+    // save seqid and the corresponding char 
+    vector<uint32_t> id2merge(1,seqid); 
+    vector<uint8_t> char2write(1,d[eos[seqid]-suflen[i]-1]);
+    while(next<dasize && suflen[next]==suflen[i]) {
+      seqid = da[i]&0x7FFFFFFF;
+      if(da[i]&0x10000000) {
+        assert(suflen[next]!=wlen[next]);   // the lcp cannot be greater than suffixLen
+        id2merge.push_back(seqid);           // sequence to consider
+        char2write.push_back(d[eos[seqid]-suflen[next]-1]);  // corresponding char
+        next++;
+      }
+      else break;
+    }
+    size_t numwords = id2merge.size(); 
+    // numwords dictionary words contains the same suffix
+    // case of a single word
+    if(numwords==1) {
+      uint32_t s = id2merge[0];
+      for(long j=istart[s];j<istart[s+1];j++)
+        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      easy_bwts +=  istart[s+1]- istart[s]; 
+      continue;   
+    }
+    // many words, same char?
+    bool samechar=true;
+    for(size_t i=1;(i<numwords)&&samechar;i++)
+      samechar = (char2write[i-1]==char2write[i]); 
+    if(samechar) {
+      for(size_t i=0; i<id2merge.size(); i++) {
+        uint32_t s = id2merge[i];
+        for(long j=istart[s];j<istart[s+1];j++)
+          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
+        easy_bwts +=  istart[s+1]- istart[s]; 
+      }
+      continue;
+    }
+    // many words, many chars...     
+    {
+      // create heap
+      vector<SeqId> heap;
+      for(size_t i=0; i<numwords; i++) {
+        uint32_t s = id2merge[i];
+        heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+      }
+      std::make_heap(heap.begin(),heap.end());
+      while(heap.size()>0) {
+        // output char for the top of the heap
+        SeqId s = heap.front();
+        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+        hard_bwts += 1;
+        // remove top 
+        pop_heap(heap.begin(),heap.end());
+        heap.pop_back();
+        // if remaining positions, reinsert to heap
+        if(s.next()) {
+          heap.push_back(s);
+          push_heap(heap.begin(),heap.end());
+        }
+      }
+    }
+  }  
+  if(full_words!=dwords) 
+    cerr << "Dwords: " << dwords << endl;
+  cout << "Full words: " << full_words << endl;
+  cout << "Easy bwt chars: " << easy_bwts << endl;
+  cout << "Hard bwt chars: " << hard_bwts << endl;
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
+  fclose(fbwt);
+  delete[] lcp;
+  delete[] sa;
+} 
+
+
 // compute the number of words in a dictionary
 long get_num_words(uint8_t *d, long n)
 {
@@ -516,9 +653,9 @@ long get_num_words(uint8_t *d, long n)
 int main(int argc, char** argv)
 {
   // check command line
-  if(argc!=3) {
+  if(argc!=3 && argc!=4) {
     cerr << "Usage:\n\t";
-    cerr << argv[0] << " wsize file\n" << endl;
+    cerr << argv[0] << " wsize file [threads]\n" << endl;
     exit(1);
   }
   puts("==== Command line:");
@@ -528,6 +665,12 @@ int main(int argc, char** argv)
 
   // translate command line parameters
   int w = atoi(argv[1]);             // sliding window size   
+  int num_threads=0;                 // number of helper threads
+  if(argc==4) num_threads = atoi(argv[3]);
+  if(num_threads<0) {
+    cerr << "Number of helper threads cannot be negative!\n";
+    exit(1);
+  }
 
   // read dictionary file 
   FILE *g = open_aux_file(argv[2],"dict","rb");
@@ -595,7 +738,8 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
+  //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
+  bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly
   //bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   
@@ -639,6 +783,37 @@ long binsearch(uint_t x, uint_t a[], long n)
   assert(((hi==0) || x>a[hi-1]) && x< a[hi]);
   return hi; 
 }
+
+
+// transform sa[], lcp -> da[], suflen[] + 
+// bit telling whether suflen[i]==lcp[i]
+void sa2da(uint_t sa[], int_t lcp[], long dsize, long dwords, int w)
+{
+  if(dwords>0x7FFFFFFF) {
+    cerr << "Too many words in the dictionary. Current limit: 2^31-1\n";
+    exit(1);
+  }
+  uint_t *eos = sa + 1;  
+  uint32_t seqid; 
+  for(long i=dwords+w+1; i<dsize; i++) {     // we are considering d[sa[i]....]     
+    int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
+    assert(seqid<=0x7FFFFFFF);      // seqid uses at most 31 bits
+    assert(suffixLen>=lcp[i]); // sequence length cannot be shorter than lcp
+    if(lcp[i]==suffixLen)      // save da + bit 
+      sa[i] = seqid | (1u << 31); // mark last bit if lcp==suffix_len;
+    else 
+      sa[i] = seqid;
+    lcp[i] = suffixLen;      // save suffix length
+  }
+  // save length of word i in lcp[i+1] (sa[i+1] is the position of its eos)
+  lcp[1+0] = eos[0];
+  for(long i=1;i<dwords;i++)
+    lcp[1+i] = eos[i]-eos[i-1];  
+}
+
+
+
+
 
 // return the length of the suffix starting in position p.
 // also write to seqid the id of the sequence containing that suffix 

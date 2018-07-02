@@ -66,9 +66,9 @@ def main():
     # ----------- compute final BWT using dictionary and BWT of parse    
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
-      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)
+      command = "{exe} {wsize} {file} 1".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)
     else:  
-      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input)
+      command = "{exe} {wsize} {file} 1".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input)
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
