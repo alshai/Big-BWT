@@ -35,11 +35,11 @@ c%.x: %.cpp malloc_count.o
 newscan.x: newscan.cpp malloc_count.o  
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
 
-pfbwt.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o 
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
+pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o malloc_count.o 
+	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o -lpthread -ldl
 
-pfbwt64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o 
-	$(CXX) $(CXX_FLAGS) -o $@ $^  -ldl -DM64
+pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o malloc_count.o 
+	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o -lpthread  -ldl -DM64
 
 tarfile:
 		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
