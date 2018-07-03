@@ -28,16 +28,29 @@ typedef struct{
 } sa2da_data;
 
 
-// initialization of semapfores and mutex for producer/consumer 
-void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)
+// initialization/destroy of semaphores and mutex for producer/consumer 
+static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)
 {
   int e = pthread_mutex_init(m,NULL);
   if(e) die("mutex initialization");  
   e = sem_init(free_slots,0,Buf_size);
   if(e) die("Free slots initialization");
   e = sem_init(data_items,0,0);
-  if(e) die("Data initialization");
+  if(e) die("Data items initialization");
 }  
+  
+static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)
+{
+  int e = pthread_mutex_destroy(m);
+  if(e) die("mutex destruction");  
+  e = sem_destroy(free_slots);
+  if(e) die("Free slots destruction");
+  e = sem_destroy(data_items);
+  if(e) die("Data items destruction");
+}  
+  
+  
+  
   
 void *sa2da_body(void *v)
 {
@@ -155,6 +168,22 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
       if(e) die("post in sa2da_body");
       i = r.end;
     }
+    // send terminate data
+    r.start = -1;
+    for(int i=0;i<numt;i++) {
+      int e = sem_wait(d->free_slots);
+      if(e) die("wait in sa2da");
+      d->buffer[(pindex++) % Buf_size] = r; 
+      e = sem_post(d->data_items);
+      if(e) die("post in sa2da_body");
+    }
+    // wait for termination
+    for(int i=0;i<numt;i++) {
+      pthread_join(t[i],NULL);
+      words += d[i].full_words;
+    }
+    pc_destroy(&free_slots,&data_items, &m);
+    // done
   }
   cout << "Conversion took " << difftime(time(NULL),start) << " wall clock seconds\n";  
   cout << "DA has size: " << dsize-dwords-w-1;

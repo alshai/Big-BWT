@@ -36,7 +36,7 @@ newscan.x: newscan.cpp malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
 
 pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o malloc_count.o 
-	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o -lpthread -ldl
+	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o -lpthread
 
 pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o malloc_count.o 
 	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o -lpthread  -ldl -DM64
