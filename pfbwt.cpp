@@ -521,6 +521,9 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
          int w, char *name)             // window size and base name for output file
 {  
   (void) psize; // used only in assertions
+  // open output file 
+  FILE *fbwt = open_aux_file(name,"bwt","wb");
+  time_t  start = time(NULL);  
   
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp; 
@@ -529,25 +532,16 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
   assert(d[0]==Dollar);
   d[0]=0;
 
-  // derive eos from sa. for i=0...dwords-1, eos[i] is the eos position of string i in d
-  uint_t *eos = sa+1;
-  for(int i=0;i<dwords-1;i++)
-    assert(eos[i]<eos[i+1]);
-
-  // open output file 
-  FILE *fbwt = open_aux_file(name,"bwt","wb");
-    
-  time_t start = time(NULL);
   // convert sa,lcp->da,suflen + bit
   sa2da(sa,lcp,d,dsize,dwords,w);
   uint_t *da = sa + (dwords+w+1);
+  uint_t *eos = sa+1;
   long dasize= dsize - (dwords+w+1);
   int_t *suflen = lcp + (dwords+w+1);
   int_t *wlen = lcp+1;
-  cout << "Converting SA->DA took " << difftime(time(NULL),start) << " wall clock seconds\n";    
-  lcp = NULL; sa = NULL;
+  lcp = NULL; sa = NULL; // make sure these are not used
 
-  // main loop: consider each entry in the da[] of dict
+  // main loop: consider each entry in the DA[] of dict
   long full_words = 0; 
   long easy_bwts = 0;
   long hard_bwts = 0;
@@ -561,7 +555,7 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
     assert(seqid<dwords);
 
     // ----- simple case: the suffix is a full word 
-    if(suflen[i]==wlen[i]) {
+    if(suflen[i]==wlen[seqid]) {
       full_words++;
       for(long j=istart[seqid];j<istart[seqid+1];j++)
         if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
@@ -572,9 +566,9 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
     vector<uint32_t> id2merge(1,seqid); 
     vector<uint8_t> char2write(1,d[eos[seqid]-suflen[i]-1]);
     while(next<dasize && suflen[next]==suflen[i]) {
-      seqid = da[i]&0x7FFFFFFF;
-      if(da[i]&0x80000000) {
-        assert(suflen[next]!=wlen[next]);   // the lcp cannot be greater than suffixLen
+      seqid = da[next]&0x7FFFFFFF;
+      if(da[next]&0x80000000u) {
+        assert(suflen[next]!=wlen[seqid]);   // the lcp cannot be greater than suffixLen
         id2merge.push_back(seqid);           // sequence to consider
         char2write.push_back(d[eos[seqid]-suflen[next]-1]);  // corresponding char
         next++;
@@ -786,14 +780,19 @@ long binsearch(uint_t x, uint_t a[], long n)
 }
 
 
+
 // transform sa[],lcp[] -> da[], suflen[] + 
 // extra bit telling whether suflen[i]==lcp[i]
 void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w)
 {
+  long words=0;
   if(dwords>0x7FFFFFFF) {
     cerr << "Too many words in the dictionary. Current limit: 2^31-1\n";
     exit(1);
   }
+  cout << "Converting SA and LCP Array to DA and SufLen\n";
+  
+  time_t  start = time(NULL);  
   // create eos[] array with ending position in d[] of each word
   uint_t *eos = sa + 1;
   int_t *wlen = lcp + 1;
@@ -801,6 +800,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
   wlen[0] = eos[0];
   for(long i=1;i<dwords;i++) {
     wlen[i] = eos[i]-eos[i-1] -1;
+    assert(wlen[i]>0);
     assert(d[eos[i-1]]==EndOfWord);
     assert(d[eos[i-1]+wlen[i]+1]==EndOfWord);
   }
@@ -811,16 +811,21 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
     assert(seqid<=0x7FFFFFFF);     // seqid uses at most 31 bits
     assert(suffixLen>=lcp[i]);     // suffix length cannot be shorter than lcp
     assert(suffixLen<=wlen[seqid]);// suffix length cannot be larger than word length
-    if(lcp[i]==suffixLen)          // save seqid + possibily extra bit 
+    if(suffixLen==wlen[seqid]) {   // test if full word
+      words++;                     
+      assert(lcp[i]<suffixLen);    // full words are not prefix of other suffixes
+    }
+    if(lcp[i]==suffixLen) {         // save seqid + possibily extra bit 
       sa[i] = seqid | (1u << 31);  // mark last bit if lcp==suffix_len;
+    }
     else 
       sa[i] = seqid;               // save only seqid = da[i]
     lcp[i] = suffixLen;            // save suffix length overwriting lcp
   }
+  cout << "Conversion took " << difftime(time(NULL),start) << " wall clock seconds\n";  
+  cout << "DA has size: " << dsize-dwords-w-1;
+  cout << ". Dictionary words found: " << words << endl; 
 }
-
-
-
 
 
 // return the length of the suffix starting in position p.
