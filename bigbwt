@@ -29,7 +29,7 @@ def main():
   parser.add_argument('input', help='input file name', type=str)
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
-  parser.add_argument('-t', help='number of helper threads (def. 0)', default=0, type=int)
+  parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
   #parser.add_argument('-v',  help='verbose',action='store_true')
@@ -67,7 +67,7 @@ def main():
     # ----------- compute final BWT using dictionary and BWT of parse    
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
-      command = "{exe} {wsize} {file} 1".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)
+      command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
     else:  
       command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
     print("==== Computing final BWT. Command:", command)

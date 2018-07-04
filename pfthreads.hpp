@@ -182,8 +182,8 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
       pthread_join(t[i],NULL);
       words += d[i].full_words;
     }
-    pc_destroy(&free_slots,&data_items, &m);
     // done
+    pc_destroy(&free_slots,&data_items, &m);
   }
   cout << "Conversion took " << difftime(time(NULL),start) << " wall clock seconds\n";  
   cout << "DA has size: " << dsize-dwords-w-1;

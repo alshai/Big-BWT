@@ -2,7 +2,7 @@
  * pfbwt.cpp
  *  
  * Usage:
- *   pfbwt.x wsize file
+ *   mbwt.x wsize file numthreads
  *
  * See newscan.cpp for usage 
  * 
