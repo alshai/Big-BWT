@@ -2,12 +2,15 @@
  * pfthreads.hpp
  * 
  **************************************************************************** */
-#include <semaphore.h>
+extern "C" {
+#include "xerrors.h"
+}
+
 
 
 #define Buf_size 20
-#define Min_bwt_range 100000
-#define Sa_block      100000
+#define Min_bwt_range 1000000
+#define Sa_block      1000000
 
 
 // ----- parallel conversion of sa/lcp ->da/sufLen
@@ -21,35 +24,27 @@ typedef struct{
     int *cindex;                    // consumer index in buffer
     pthread_mutex_t *cindex_m;      // mutex for c_index
     sem_t *free_slots, *data_items; // prod/consumer semaphores
-    long full_words;                // full words found by this thread (output)
     uint_t *sa, *eos;
     int_t *lcp, *wlen;
     long dwords;
+    long full_words;                // full words found, shared: use mutex 
 } sa2da_data;
 
 
-// initialization/destroy of semaphores and mutex for producer/consumer 
+// initialize/destroy semaphores and mutex for producer/consumer 
 static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)
 {
-  int e = pthread_mutex_init(m,NULL);
-  if(e) die("mutex initialization");  
-  e = sem_init(free_slots,0,Buf_size);
-  if(e) die("Free slots initialization");
-  e = sem_init(data_items,0,0);
-  if(e) die("Data items initialization");
+  xpthread_mutex_init(m,NULL,__LINE__,__FILE__);
+  xsem_init(free_slots,0,Buf_size,__LINE__,__FILE__);
+  xsem_init(data_items,0,0,__LINE__,__FILE__);
 }  
   
 static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)
 {
-  int e = pthread_mutex_destroy(m);
-  if(e) die("mutex destruction");  
-  e = sem_destroy(free_slots);
-  if(e) die("Free slots destruction");
-  e = sem_destroy(data_items);
-  if(e) die("Data items destruction");
+  xpthread_mutex_destroy(m,__LINE__,__FILE__);
+  xsem_destroy(free_slots,__LINE__,__FILE__);
+  xsem_destroy(data_items,__LINE__,__FILE__);
 }  
-  
-  
   
   
 void *sa2da_body(void *v)
@@ -165,7 +160,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
       if(e) die("wait in sa2da");
       d->buffer[(pindex++) % Buf_size] = r; 
       e = sem_post(d->data_items);
-      if(e) die("post in sa2da_body");
+      if(e) die("post in sa2da");
       i = r.end;
     }
     // send terminate data
@@ -175,7 +170,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
       if(e) die("wait in sa2da");
       d->buffer[(pindex++) % Buf_size] = r; 
       e = sem_post(d->data_items);
-      if(e) die("post in sa2da_body");
+      if(e) die("post in sa2da");
     }
     // wait for termination
     for(int i=0;i<numt;i++) {
@@ -203,41 +198,29 @@ typedef struct {
   long count;      // chars to be written to the output bwt;
 } sa_range;
 
-
-// single struct representing the main data for bwt computation 
-typedef struct {
-  uint8_t *dict;     // dictionary
-  uint_t *sa;        // suffix array for dict[]
-  int_t *lcp;        // lcp array
-  long dsize;        // size of dict[] sa[] lcp[] 
-  uint8_t *last;     // array of last symbols 
-  uint32_t *ilist;   // inverted list 
-  uint32_t *istart;  // starting position inside inverted list 
-  long dwords;       // number of words in the dictionary
-  long full_words; 
-  long easy_bwts; 
-  long hard_bwts; 
-  uint8_t *bwt;
-  int w;
-} main_data;
-
 // working data to be passed to each consumer thread
 typedef struct {
   uint8_t *dict;     // dictionary
   uint_t *sa;        // suffix array for d[]
   int_t *lcp;        // lcp array
+  long dsize;        // size of dict[] sa[] lcp[]  
   uint8_t *last;     // array of last symbols 
   uint32_t *ilist;   // inverted list 
   uint32_t *istart;  // starting position inside inverted list 
-  uint32_t dwords;   // number of words in the dictionary 
+  long dwords;       // number of words in the dictionary 
+  int w;             // window size
   sa_range  buffer[Buf_size]; // shared producer/consumer buffer 
   int cindex;                 // consumer index in buffer
   pthread_mutex_t mutex_consumers; // mutex and semaphores 
   sem_t sem_free_slots;
-  sem_t sem_data_items;   
+  sem_t sem_data_items;
+  uint8_t *bwt;
+  long full_words;           // output parameters, access with a mutex_consumer
+  long easy_bwts; 
+  long hard_bwts; 
 } thread_data;
 
-long add_sa_entries(main_data *d, long i)
+long add_sa_entries(thread_data *d, long i)
 {
   uint_t *eos = d->sa+1;
   long next = i+1;
@@ -333,7 +316,7 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
     assert(eos[i]<eos[i+1]);
   
   // save everything in the thread_data structure
-  main_data data;
+  thread_data data;
   data.dict = d; data.sa = sa; data.lcp = lcp; data.dsize = dsize; 
   data.last = last; data.ilist = ilist; data.istart = istart;
   data.dwords = dwords; 

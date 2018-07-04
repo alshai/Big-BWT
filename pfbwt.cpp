@@ -195,7 +195,7 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
 void bwt_new(uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
          uint32_t *istart, long dwords, // starting point in ilist for each word and # words
-         int w, char *name,int numt)             // window size and base name for output file
+         int w, char *name, int numt)   // window size and base name for output file
 {  
   (void) psize; // used only in assertions
   // open output file 
@@ -327,7 +327,7 @@ int main(int argc, char** argv)
   // check command line
   if(argc!=3 && argc!=4) {
     cerr << "Usage:\n\t";
-    cerr << argv[0] << " wsize file [threads]\n" << endl;
+    cerr << argv[0] << " wsize file [num_threads]\n" << endl;
     exit(1);
   }
   puts("==== Command line:");
@@ -413,7 +413,7 @@ int main(int argc, char** argv)
   //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   //bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly 
-  if(num_threads==0)
+  if(num_threads==99)
     bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   else
     bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
