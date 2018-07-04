@@ -196,21 +196,19 @@ typedef struct {
 
 // working data to be passed to each consumer thread
 typedef struct {
-  uint8_t *dict;     // dictionary
-  uint_t *da;        // document array
-  int_t *suflen;     // suffix lengths
-  long dsize;        // size of dict[] da[] suflen[]  
-  uint8_t *last;     // array of last symbols 
-  uint32_t *ilist;   // inverted list 
-  uint32_t *istart;  // starting positions inside inverted list 
-  long dwords;       // number of words in the dictionary 
-  int w;             // window size
+  uint8_t *dict;       // dictionary
+  uint_t *da, *eos;    // document array, eos positions
+  int_t *suflen, *wlen; // suffix lengths, length of words 
+  long dsize;          // size of dict[] da[] suflen[]  
+  long dwords;         // number of words in the dictionary size of eos[] wlen[] 
+  uint8_t *last;       // array of last symbols 
+  uint32_t *ilist;     // inverted list 
+  uint32_t *istart;    // starting positions inside inverted list 
+  int w;               // window size
   da_range buffer[Buf_size]; // shared producer/consumer buffer 
-  int cindex;                 // consumer index in buffer
-  pthread_mutex_t cons_m; // mutex and semaphores 
-  sem_t free_slots;
-  sem_t data_items;
-  uint8_t *bwt;
+  int cindex;                // consumer index in buffer
+  pthread_mutex_t cons_m;    // mutex and semaphores 
+  sem_t free_slots, data_items;
   long full_words;           // output parameters, access with a mutex_consumer
   long easy_bwts; 
   long hard_bwts; 
@@ -235,7 +233,7 @@ void mbwt(uint8_t *d, long dsize, // dictionary and its size
   // convert sa,lcp->da,suflen + bit
   sa2da(sa,lcp,d,dsize,dwords,w,numt);
   uint_t *da = sa + (dwords+w+1);
-  // uint_t *eos = sa+1;
+  uint_t *eos = sa+1;
   long dasize= dsize - (dwords+w+1);
   int_t *suflen = lcp + (dwords+w+1);
   int_t *wlen = lcp+1;
@@ -243,18 +241,28 @@ void mbwt(uint8_t *d, long dsize, // dictionary and its size
 
   // init thread_data
   thread_data td;
-  td.bwt = get_mmaped_bwt(name);
-  td.dict = d; td.dsize = dsize;
-  td.last = last; td.ilist = ilist;
+  td.dict = d; td.dsize = dsize; td.dwords = dwords;
+  td.suflen = suflen; td.wlen = wlen;
+  td.da = da; td.eos = eos;
+  td.last = last; td.ilist = ilist; td.istart=istart;
   td.full_words = td.easy_bwts = td.hard_bwts = 0;
+  td.cindex=0;
+  pc_init(&td.free_slots,&td.data_items,&td.cons_m); 
 
   // main loop: consider each entry in the DA[] of dict
+  uint8_t *bwt = get_mmaped_bwt(name);
   time_t  start = time(NULL);
   long written=0, entries=0, rstart = 0;  
   long next, full_words=0;
+  int pindex=0; da_range r;
   for(long i=0; i< dasize; i=next ) {
-    // ---- check if a batch is ready
+    // ---- if a batch is ready write it to the prod/cons buffer
     if(entries >= Min_bwt_range) {
+      r.start = rstart; r.end = i;
+      r.bwt = bwt + written; r.count = entries;
+      xsem_wait(&td.free_slots,__LINE__,__FILE__);
+      td.buffer[pindex++ % Buf_size] = r;
+      xsem_post(&td.data_items,__LINE__,__FILE__);
       printf("%ld -- %ld (%ld -- %ld)\n",written,written+entries, rstart, i);
       written += entries; entries=0;
       rstart = i;
@@ -282,24 +290,72 @@ void mbwt(uint8_t *d, long dsize, // dictionary and its size
     }
   }
   printf("%ld == %ld (%ld - %ld)\n",written,written+entries,rstart,dasize);
-  if(full_words!=dwords) 
+  // ultimo 
+  
+  
+  if(td.full_words!=dwords) 
     cerr << "Dwords: " << dwords << endl;
-  cout << "Full words: " << full_words << endl;
+  cout << "Full words: " << td.full_words << endl;
   cout << "Easy bwt chars: " << td.easy_bwts << endl;
   cout << "Hard bwt chars: " << td.hard_bwts << endl;
   cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
-  // fclose(fbwt);
+  pc_destroy(&td.free_slots,&td.data_items,&td.cons_m); 
+  munmap(bwt,0);
   delete[] lcp;
   delete[] sa;
 }    
+
+
+// write to the bwt all the characters preceding a given suffix
+// doing a merge operation if necessary
+static void write_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    uint8_t *bwt, long &c, long &easy_bwts, long &hard_bwts)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  bool samechar=true;
+  for(size_t i=1;(i<numwords)&&samechar;i++)
+    samechar = (char2write[i-1]==char2write[i]); 
+  if(samechar) {
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      for(long j=istart[s];j<istart[s+1];j++)
+        bwt[c++] = char2write[0];
+      easy_bwts +=  istart[s+1]- istart[s]; 
+    }
+  }
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      bwt[c++] = s.char2write;
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
+
 
 
 void *merge_body(void *v)
 {
   thread_data *d = (thread_data *) v;
 
-  uint32_t seqid; 
-  long full_words=0, easy_bwts=0, hard_bwts=0;
+  long i, next, c=0, full_words=0, easy_bwts=0, hard_bwts=0;
+  // main loop 
   while(true) {
     // --- get starting position from buffer 
     xsem_wait(&d->data_items,__LINE__,__FILE__);
@@ -311,14 +367,49 @@ void *merge_body(void *v)
     // exit if start is illegal
     if(r.start<0) break;
     // process range [start,end]
+    for(i = r.start; i<r.end; i=next){
+      // we are considering d[sa[i]....] belonging to da[i]
+      next = i+1;  // prepare for next iteration  
+      // discard if it is a small suffix 
+      if(d->suflen[i]<=d->w) continue;
+      uint32_t seqid = d->da[i]&0x7FFFFFFF;
+      assert(seqid<d->dwords);
+      // ----- simple case: the suffix is a full word 
+      if(d->suflen[i]==d->wlen[seqid]) {
+        full_words++;
+        for(long j=d->istart[seqid];j<d->istart[seqid+1];j++) 
+          r.bwt[c++] = d->last[d->ilist[j]];
+        continue; // proceed with next i 
+      }
+      // ----- hard case: there can be a group of equal suffixes starting at i
+      // save seqid and the corresponding char 
+      vector<uint32_t> id2merge(1,seqid); 
+      vector<uint8_t> char2write(1,d->dict[d->eos[seqid]-d->suflen[i]-1]);
+      while(next<r.end && d->suflen[next]==d->suflen[i]) {
+        seqid = d->da[next]&0x7FFFFFFF;
+        if(d->da[next]&0x80000000u) {
+          assert(d->suflen[next]!=d->wlen[seqid]);   // the lcp cannot be greater than suffixLen
+          id2merge.push_back(seqid);           // sequence to consider
+          char2write.push_back(d->dict[d->eos[seqid]-d->suflen[next]-1]);  // corresponding char
+          next++;
+        }
+        else break;
+      }
+      write_chars_same_suffix(id2merge, char2write, d->ilist,d->istart,r.bwt,c,easy_bwts,hard_bwts);
+    }
+    assert(i==r.end);
+    assert(c==r.count);
   }
   xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
   d->easy_bwts += easy_bwts;  
   d->hard_bwts += hard_bwts;  
   d->full_words += full_words;  
-  xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
+  xpthread_mutex_unlock(&d->cons_m,__LINE__,__FILE__);
   return NULL;
 }
+
+
+
 
 
 #if 0

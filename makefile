@@ -3,7 +3,7 @@ CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x 
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt.x 
 
 all: $(EXECS)
 
