@@ -38,6 +38,10 @@ int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
 void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 
+static size_t get_bwt_size(char *name);
+static uint8_t *get_mmaped_bwt(char *name);
+
+
 // class representing the suffix of a dictionary word
 // instances of this class are stored to a heap to handle the hard bwts
 struct SeqId {
@@ -416,7 +420,7 @@ int main(int argc, char** argv)
   if(num_threads==99)
     bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   else
-    bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
+    mbwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   
   delete[] bwlast;
   delete[] ilist;

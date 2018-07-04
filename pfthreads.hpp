@@ -7,10 +7,10 @@ extern "C" {
 }
 
 
-
 #define Buf_size 20
-#define Min_bwt_range 1000000
+#define Min_bwt_range 100000
 #define Sa_block      1000000
+
 
 
 // ----- parallel conversion of sa/lcp ->da/sufLen
@@ -54,19 +54,15 @@ void *sa2da_body(void *v)
   long words=0;
   while(true) {
     // --- get starting position from buffer 
-    int e = sem_wait(d->data_items);
-    if(e) die("wait in sa2da_body");
-    e = pthread_mutex_lock(d->cindex_m);
-    if(e) die("lock in sa2da_body");
+    xsem_wait(d->data_items,__LINE__,__FILE__);
+    xpthread_mutex_lock(d->cindex_m,__LINE__,__FILE__);
     sarange r = d->buffer[*(d->cindex)]; 
     *(d->cindex) = (*(d->cindex) + 1) % Buf_size;
-    e = pthread_mutex_unlock(d->cindex_m);
-    if(e) die("unlock in sa2da_body");
-    e = sem_post(d->free_slots);
-    if(e) die("post in sa2da_body");
+    xpthread_mutex_unlock(d->cindex_m,__LINE__,__FILE__);
+    xsem_post(d->free_slots,__LINE__,__FILE__);
     // exit if start is illegal
     if(r.start<0) break;
-    // process range start-end
+    // process range [start,end]
     for(long i=r.start;i<r.end;i++) {// see sa2da()
       int_t suffixLen = getlen(d->sa[i],d->eos,d->dwords,&seqid);
       assert(seqid<=0x7FFFFFFF);     // seqid uses at most 31 bits
@@ -192,11 +188,234 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
 
 // range in the suffix array of the dictionary 
 typedef struct {
-  long sa_start;   // starting position in the dictionary 
-  long sa_end;     // end position in the dictionary
+  long start;      // starting position in the dictionary 
+  long end;        // end position in the dictionary
   uint8_t *bwt;    // starting position in the output bwt
   long count;      // chars to be written to the output bwt;
-} sa_range;
+} da_range;
+
+// working data to be passed to each consumer thread
+typedef struct {
+  uint8_t *dict;     // dictionary
+  uint_t *da;        // document array
+  int_t *suflen;     // suffix lengths
+  long dsize;        // size of dict[] da[] suflen[]  
+  uint8_t *last;     // array of last symbols 
+  uint32_t *ilist;   // inverted list 
+  uint32_t *istart;  // starting positions inside inverted list 
+  long dwords;       // number of words in the dictionary 
+  int w;             // window size
+  da_range buffer[Buf_size]; // shared producer/consumer buffer 
+  int cindex;                 // consumer index in buffer
+  pthread_mutex_t cons_m; // mutex and semaphores 
+  sem_t free_slots;
+  sem_t data_items;
+  uint8_t *bwt;
+  long full_words;           // output parameters, access with a mutex_consumer
+  long easy_bwts; 
+  long hard_bwts; 
+} thread_data;
+
+
+
+void mbwt(uint8_t *d, long dsize, // dictionary and its size  
+         uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
+         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
+         int w, char *name, int numt)   // window size and base name for output file
+{  
+  (void) psize; // used only in assertions
+
+  // compute sa and bwt of d and do some checking on them 
+  uint_t *sa; int_t *lcp; 
+  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
+  // set d[0] ==0 as this is the EOF char in the final BWT
+  assert(d[0]==Dollar);
+  d[0]=0;
+
+  // convert sa,lcp->da,suflen + bit
+  sa2da(sa,lcp,d,dsize,dwords,w,numt);
+  uint_t *da = sa + (dwords+w+1);
+  // uint_t *eos = sa+1;
+  long dasize= dsize - (dwords+w+1);
+  int_t *suflen = lcp + (dwords+w+1);
+  int_t *wlen = lcp+1;
+  lcp = NULL; sa = NULL; // make sure these are not used
+
+  // init thread_data
+  thread_data td;
+  td.bwt = get_mmaped_bwt(name);
+  td.dict = d; td.dsize = dsize;
+  td.last = last; td.ilist = ilist;
+  td.full_words = td.easy_bwts = td.hard_bwts = 0;
+
+  // main loop: consider each entry in the DA[] of dict
+  time_t  start = time(NULL);
+  long written=0, entries=0, rstart = 0;  
+  long next, full_words=0;
+  for(long i=0; i< dasize; i=next ) {
+    // ---- check if a batch is ready
+    if(entries >= Min_bwt_range) {
+      printf("%ld -- %ld (%ld -- %ld)\n",written,written+entries, rstart, i);
+      written += entries; entries=0;
+      rstart = i;
+    }
+    next = i+1;  // prepare for next iteration  
+    // discard if it is a small suffix 
+    if(suflen[i]<=w) continue;
+    uint32_t seqid = da[i]&0x7FFFFFFF;
+    assert(seqid<dwords);
+    entries += istart[seqid+1]-istart[seqid];
+    // ----- simple case: the suffix is a full word 
+    if(suflen[i]==wlen[seqid]) {
+      full_words++;
+      continue; // proceed with next i 
+    }
+    // ----- hard case: there can be a group of equal suffixes starting at i
+    while(next<dasize && suflen[next]==suflen[i]) {
+      seqid = da[next]&0x7FFFFFFF;
+      if(da[next]&0x80000000u) {
+        assert(suflen[next]!=wlen[seqid]);   // the lcp cannot be greater than suffixLen
+        entries += istart[seqid+1]-istart[seqid];
+        next++;
+      }
+      else break;
+    }
+  }
+  printf("%ld == %ld (%ld - %ld)\n",written,written+entries,rstart,dasize);
+  if(full_words!=dwords) 
+    cerr << "Dwords: " << dwords << endl;
+  cout << "Full words: " << full_words << endl;
+  cout << "Easy bwt chars: " << td.easy_bwts << endl;
+  cout << "Hard bwt chars: " << td.hard_bwts << endl;
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
+  // fclose(fbwt);
+  delete[] lcp;
+  delete[] sa;
+}    
+
+
+void *merge_body(void *v)
+{
+  thread_data *d = (thread_data *) v;
+
+  uint32_t seqid; 
+  long full_words=0, easy_bwts=0, hard_bwts=0;
+  while(true) {
+    // --- get starting position from buffer 
+    xsem_wait(&d->data_items,__LINE__,__FILE__);
+    xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
+    da_range r = d->buffer[d->cindex]; 
+    d->cindex = (d->cindex + 1) % Buf_size;
+    xpthread_mutex_unlock(&d->cons_m,__LINE__,__FILE__);
+    xsem_post(&d->free_slots,__LINE__,__FILE__);
+    // exit if start is illegal
+    if(r.start<0) break;
+    // process range [start,end]
+  }
+  xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
+  d->easy_bwts += easy_bwts;  
+  d->hard_bwts += hard_bwts;  
+  d->full_words += full_words;  
+  xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
+  return NULL;
+}
+
+
+#if 0
+{  
+  long next, written=0, entries=0;
+  for(long i=0; i< dasize; i=next ) {      
+    // we are considering d[sa[i]....] belonging to da[i]
+    next = i+1;  // prepare for next iteration  
+    // discard if it is a small suffix 
+    if(suflen[i]<=w) continue;
+    uint32_t seqid = da[i]&0x7FFFFFFF;
+    assert(seqid<dwords);
+
+    // ----- simple case: the suffix is a full word 
+    if(suflen[i]==wlen[seqid]) {
+      full_words++;
+      for(long j=istart[seqid];j<istart[seqid+1];j++)
+        if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
+      continue; // proceed with next i 
+    }
+    // ----- hard case: there can be a group of equal suffixes starting at i
+    // save seqid and the corresponding char 
+    vector<uint32_t> id2merge(1,seqid); 
+    vector<uint8_t> char2write(1,d[eos[seqid]-suflen[i]-1]);
+    while(next<dasize && suflen[next]==suflen[i]) {
+      seqid = da[next]&0x7FFFFFFF;
+      if(da[next]&0x80000000u) {
+        assert(suflen[next]!=wlen[seqid]);   // the lcp cannot be greater than suffixLen
+        id2merge.push_back(seqid);           // sequence to consider
+        char2write.push_back(d[eos[seqid]-suflen[next]-1]);  // corresponding char
+        next++;
+      }
+      else break;
+    }
+    size_t numwords = id2merge.size(); 
+    // numwords dictionary words contains the same suffix
+    // case of a single word
+    if(numwords==1) {
+      uint32_t s = id2merge[0];
+      for(long j=istart[s];j<istart[s+1];j++)
+        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      easy_bwts +=  istart[s+1]- istart[s]; 
+      continue;   
+    }
+    // many words, same char?
+    bool samechar=true;
+    for(size_t i=1;(i<numwords)&&samechar;i++)
+      samechar = (char2write[i-1]==char2write[i]); 
+    if(samechar) {
+      for(size_t i=0; i<id2merge.size(); i++) {
+        uint32_t s = id2merge[i];
+        for(long j=istart[s];j<istart[s+1];j++)
+          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
+        easy_bwts +=  istart[s+1]- istart[s]; 
+      }
+      continue;
+    }
+    // many words, many chars...     
+    {
+      // create heap
+      vector<SeqId> heap;
+      for(size_t i=0; i<numwords; i++) {
+        uint32_t s = id2merge[i];
+        heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+      }
+      std::make_heap(heap.begin(),heap.end());
+      while(heap.size()>0) {
+        // output char for the top of the heap
+        SeqId s = heap.front();
+        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+        hard_bwts += 1;
+        // remove top 
+        pop_heap(heap.begin(),heap.end());
+        heap.pop_back();
+        // if remaining positions, reinsert to heap
+        if(s.next()) {
+          heap.push_back(s);
+          push_heap(heap.begin(),heap.end());
+        }
+      }
+    }
+  }  
+  if(full_words!=dwords) 
+    cerr << "Dwords: " << dwords << endl;
+  cout << "Full words: " << full_words << endl;
+  cout << "Easy bwt chars: " << easy_bwts << endl;
+  cout << "Hard bwt chars: " << hard_bwts << endl;
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
+  fclose(fbwt);
+  delete[] lcp;
+  delete[] sa;
+} 
+#endif
+
+
+
+// ----------------- not used -------------------
 
 // working data to be passed to each consumer thread
 typedef struct {
@@ -206,21 +425,23 @@ typedef struct {
   long dsize;        // size of dict[] sa[] lcp[]  
   uint8_t *last;     // array of last symbols 
   uint32_t *ilist;   // inverted list 
-  uint32_t *istart;  // starting position inside inverted list 
+  uint32_t *istart;  // starting positions inside inverted list 
   long dwords;       // number of words in the dictionary 
   int w;             // window size
-  sa_range  buffer[Buf_size]; // shared producer/consumer buffer 
-  int cindex;                 // consumer index in buffer
-  pthread_mutex_t mutex_consumers; // mutex and semaphores 
-  sem_t sem_free_slots;
-  sem_t sem_data_items;
+  da_range buffer[Buf_size]; // shared producer/consumer buffer 
+  //int cindex;                 // consumer index in buffer
+  //pthread_mutex_t mutex_consumers; // mutex and semaphores 
+  //sem_t sem_free_slots;
+  //sem_t sem_data_items;
   uint8_t *bwt;
   long full_words;           // output parameters, access with a mutex_consumer
   long easy_bwts; 
   long hard_bwts; 
-} thread_data;
+} main_data;
 
-long add_sa_entries(thread_data *d, long i)
+
+
+long add_sa_entries(main_data *d, long i)
 {
   uint_t *eos = d->sa+1;
   long next = i+1;
@@ -294,8 +515,7 @@ long add_sa_entries(thread_data *d, long i)
   return next;
 }
 
-#if 0
-static size_t get_bwt_size(char *name);
+
 
 
 void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size  
@@ -315,8 +535,8 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
   for(int i=0;i<dwords-1;i++)
     assert(eos[i]<eos[i+1]);
   
-  // save everything in the thread_data structure
-  thread_data data;
+  // save everything in the main_data structure
+  main_data data;
   data.dict = d; data.sa = sa; data.lcp = lcp; data.dsize = dsize; 
   data.last = last; data.ilist = ilist; data.istart = istart;
   data.dwords = dwords; 
@@ -392,13 +612,13 @@ void bwt_multi_thread(uint8_t *d, long dsize, // dictionary and its size
   delete[] lcp;
   delete[] sa;
 }
-#endif
+
 
 #if 0
 // code for the consumer threads 
 void tbody(void *v)
 {
-  thread_data *d = v;
+  main_data *d = v;
 
   // main loop
   while(true) {
@@ -500,6 +720,7 @@ void tbody(void *v)
   }
   pthread_exit(NULL);  
 }  
+#endif
 
 
 // compute size of the bwt adding 1 to the input size
@@ -516,5 +737,18 @@ static size_t get_bwt_size(char *name)
   return 1 + s;
 }
 
-#endif
+static uint8_t *get_mmaped_bwt(char *name)
+{
+  // get final bwt size from the size of the input file    
+  size_t bwt_size= get_bwt_size(name);
+  // open output file and map it to the bwt array 
+  FILE *fbwt = open_aux_file(name,"bwt","wb+");
+  // make the BWT file of the correct size (otherwise mmap fails)
+  if(ftruncate(fileno(fbwt),bwt_size)<0) die("truncate failed");
+  uint8_t *bwt = (uint8_t *) mmap(NULL,bwt_size,PROT_READ|PROT_WRITE,MAP_SHARED,fileno(fbwt), 0);
+  if(bwt==MAP_FAILED) die("mmap failed");
+  fclose(fbwt);
+  return bwt;
+}
+
 
