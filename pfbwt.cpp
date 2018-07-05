@@ -40,6 +40,8 @@ void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sa
 
 static size_t get_bwt_size(char *name);
 static uint8_t *get_mmaped_bwt(char *name);
+static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
+static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
 
 
 // class representing the suffix of a dictionary word
@@ -196,8 +198,8 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
 }  
 
 // computation of the final BWT via multithread sa,lcp conversion
-// followed by single thread bwt consrtruction, do not delete
-void bwt_new(uint8_t *d, long dsize, // dictionary and its size  
+// followed by single thread bwt construction
+void bwt_mixed(uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
          uint32_t *istart, long dwords, // starting point in ilist for each word and # words
          int w, char *name, int numt)   // window size and base name for output file
@@ -305,8 +307,7 @@ void bwt_new(uint8_t *d, long dsize, // dictionary and its size
       }
     }
   }  
-  if(full_words!=dwords) 
-    cerr << "Dwords: " << dwords << endl;
+  assert(full_words==dwords); 
   cout << "Full words: " << full_words << endl;
   cout << "Easy bwt chars: " << easy_bwts << endl;
   cout << "Hard bwt chars: " << hard_bwts << endl;
@@ -418,10 +419,12 @@ int main(int argc, char** argv)
   //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   //bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly 
-  if(num_threads==99)
+  if(num_threads==999)
     bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
-  else
-    mbwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
+  else if(num_threads>=1000)
+    bwt_mixed(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads-1000);
+  else   
+    bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   
   delete[] bwlast;
   delete[] ilist;

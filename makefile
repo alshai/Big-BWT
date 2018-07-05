@@ -3,7 +3,7 @@ CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt.x 
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x 
 
 all: $(EXECS)
 
@@ -46,7 +46,7 @@ pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o xerrors.o
 	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o xerrors.o -pthread -DM64
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] xerrors.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
 	rm -f $(EXECS) *.o gsa/*.o
