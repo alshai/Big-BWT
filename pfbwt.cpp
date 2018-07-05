@@ -195,7 +195,8 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   delete[] sa;
 }  
 
-
+// computation of the final BWT via multithread sa,lcp conversion
+// followed by single thread bwt consrtruction, do not delete
 void bwt_new(uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
          uint32_t *istart, long dwords, // starting point in ilist for each word and # words
