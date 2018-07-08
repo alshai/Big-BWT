@@ -39,7 +39,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 
 static size_t get_bwt_size(char *name);
-static uint8_t *get_mmaped_bwt(char *name);
+static int get_bwt_fd(char *name);
 static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
 static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
 
@@ -419,7 +419,7 @@ int main(int argc, char** argv)
   //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   //bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly 
-  if(num_threads==999)
+  if(num_threads==0)
     bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
   else if(num_threads>=1000)
     bwt_mixed(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads-1000);

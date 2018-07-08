@@ -9,3 +9,4 @@
 
 void die(const char *s);
 FILE *open_aux_file(const char *base, const char *ext, const char *mode);
+int fd_open_aux_file(const char *base, const char *ext, int mode);

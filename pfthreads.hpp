@@ -5,6 +5,7 @@
 extern "C" {
 #include "xerrors.h"
 }
+#include <fcntl.h>
 
 #define Buf_size 20
 #define Min_bwt_range 10000000
@@ -143,7 +144,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
       d.buffer[(pindex++) % Buf_size] = r; 
       xsem_post(&d.data_items,__LINE__,__FILE__);
     }
-    // wait for termination
+    // wait for termination of threads
     for(int i=0;i<numt;i++)
       xpthread_join(t[i],NULL,__LINE__,__FILE__);
     // done
@@ -162,7 +163,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
 typedef struct {
   long start;      // starting position in the dictionary 
   long end;        // end position in the dictionary
-  uint8_t *bwt;    // starting position in the output bwt
+  long bwt_start;  // starting position in the output bwt
   long count;      // chars to be written to the output bwt;
 } da_range;
 
@@ -181,6 +182,7 @@ typedef struct {
   int cindex;                // consumer index in buffer
   pthread_mutex_t cons_m;    // mutex and semaphores 
   sem_t free_slots, data_items;
+  int bwt_fd;                // file descriptor for the bwt output file  
   long full_words;           // output parameters, access with a mutex_consumer
   long easy_bwts; 
   long hard_bwts; 
@@ -235,18 +237,20 @@ static void *merge_body(void *v)
   thread_data *d = (thread_data *) v;
 
   long i, next, c, full_words=0, easy_bwts=0, hard_bwts=0;
+  uint8_t *local_bwt = NULL;
   // main loop 
   while(true) {
     // --- get starting position from buffer 
     xsem_wait(&d->data_items,__LINE__,__FILE__);
     xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
-    da_range r = d->buffer[d->cindex]; 
-    d->cindex = (d->cindex + 1) % Buf_size;
+    da_range r = d->buffer[d->cindex++ % Buf_size]; 
     xpthread_mutex_unlock(&d->cons_m,__LINE__,__FILE__);
     xsem_post(&d->free_slots,__LINE__,__FILE__);
     // exit if start is illegal
     if(r.start<0) break;
     // process range [start,end]
+    local_bwt = (uint8_t *) realloc(local_bwt,r.count);
+    assert(local_bwt!=NULL);
     for(c=0, i = r.start; i<r.end; i=next){
       // we are considering d[sa[i]....] belonging to da[i]
       next = i+1;  // prepare for next iteration  
@@ -258,7 +262,7 @@ static void *merge_body(void *v)
       if(d->suflen[i]==d->wlen[seqid]) {
         full_words++;
         for(long j=d->istart[seqid];j<d->istart[seqid+1];j++) 
-          r.bwt[c++] = d->last[d->ilist[j]];
+          local_bwt[c++] = d->last[d->ilist[j]];
         continue; // proceed with next i 
       }
       // ----- hard case: there can be a group of equal suffixes starting at i
@@ -275,11 +279,22 @@ static void *merge_body(void *v)
         }
         else break;
       }
-      write_chars_same_suffix(id2merge, char2write, d->ilist,d->istart,r.bwt,c,easy_bwts,hard_bwts);
+      write_chars_same_suffix(id2merge, char2write, d->ilist,d->istart,local_bwt,c,easy_bwts,hard_bwts);
     }
     assert(i==r.end);
     assert(c==r.count);
+    // write local_bwt to file d->bwt_fd starting from position r.bwt_start
+    c = 0; 
+    while(r.count>0) {
+      long written = pwrite(d->bwt_fd,local_bwt+c,r.count,r.bwt_start);
+      if(written<0) die("pwrite error (1)");
+      if(written>r.count) die("pwrite error (2)");
+      r.count -= written;
+      r.bwt_start += written;
+      c += written;
+    }
   }
+  if(local_bwt!=NULL) free(local_bwt);
   xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
   d->easy_bwts += easy_bwts;  
   d->hard_bwts += hard_bwts;  
@@ -322,6 +337,7 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
   td.full_words = td.easy_bwts = td.hard_bwts = 0;
   td.cindex=0;
   pc_init(&td.free_slots,&td.data_items,&td.cons_m); 
+  td.bwt_fd = get_bwt_fd(name); // file descriptor of output bwt file
 
   // start consumer threads
   pthread_t t[numt];
@@ -329,16 +345,16 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
     xpthread_create(&t[i],NULL,merge_body,&td,__LINE__,__FILE__);
 
   // main loop: consider each entry in the DA[] of dict
-  uint8_t *bwt = get_mmaped_bwt(name);
+  //uint8_t *bwt = get_mmaped_bwt(name);
   time_t  start = time(NULL);
   long written=0, entries=0;  
   long next, full_words=0;
-  int pindex=0; da_range r = {0,0,NULL,0};
+  int pindex=0; da_range r = {0,0,0,0};
   for(long i=0; i< dasize; i=next ) {
     // ---- if a batch is ready write it to the prod/cons buffer
     if(entries >= Min_bwt_range) {
       r.start = r.end; r.end = i;
-      r.bwt = bwt + written; r.count = entries;
+      r.bwt_start = written; r.count = entries;
       xsem_wait(&td.free_slots,__LINE__,__FILE__);
       td.buffer[pindex++ % Buf_size] = r;
       xsem_post(&td.data_items,__LINE__,__FILE__);
@@ -369,7 +385,7 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
   }
   // write last range to pc buffer
   r.start = r.end; r.end = dasize;
-  r.bwt = bwt + written; r.count = entries;
+  r.bwt_start = written; r.count = entries;
   xsem_wait(&td.free_slots,__LINE__,__FILE__);
   td.buffer[pindex++ % Buf_size] = r;
   xsem_post(&td.data_items,__LINE__,__FILE__);
@@ -388,12 +404,12 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
   cout << "Full words: " << td.full_words << endl;
   cout << "Easy bwt chars: " << td.easy_bwts << endl;
   cout << "Hard bwt chars: " << td.hard_bwts << endl;
-  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds (" << numt <<") threads\n";    
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds (" << numt <<" threads)\n";    
   pc_destroy(&td.free_slots,&td.data_items,&td.cons_m);
-  munmap(bwt,0);
+  close(td.bwt_fd); // close bwt file
   delete[] lcp;
   delete[] sa;
-}    
+}
 
 // compute size of the bwt adding 1 to the input size
 static size_t get_bwt_size(char *name)
@@ -409,18 +425,19 @@ static size_t get_bwt_size(char *name)
   return 1 + s;
 }
 
-static uint8_t *get_mmaped_bwt(char *name)
+static int get_bwt_fd(char *name)
 {
   // get final bwt size from the size of the input file    
   size_t bwt_size= get_bwt_size(name);
   // open output file and map it to the bwt array 
-  FILE *fbwt = open_aux_file(name,"bwt","wb+");
+  // FILE *fbwt = open_aux_file(name,"bwt","wb+");
+  int bwt_fd = fd_open_aux_file(name,"bwt",O_CREAT|O_WRONLY);
   // make the BWT file of the correct size (otherwise mmap fails)
-  if(ftruncate(fileno(fbwt),bwt_size)<0) die("truncate failed");
-  uint8_t *bwt = (uint8_t *) mmap(NULL,bwt_size,PROT_READ|PROT_WRITE,MAP_SHARED,fileno(fbwt), 0);
-  if(bwt==MAP_FAILED) die("mmap failed");
-  fclose(fbwt); 
-  return bwt;
+  if(ftruncate(bwt_fd,bwt_size)<0) die("truncate failed");
+  //uint8_t *bwt = (uint8_t *) mmap(NULL,bwt_size,PROT_READ|PROT_WRITE,MAP_SHARED,fileno(fbwt), 0);
+  //if(bwt==MAP_FAILED) die("mmap failed");
+  //fclose(fbwt); 
+  return bwt_fd;
 }
 
 // initialize/destroy semaphores and mutex for producer/consumer 

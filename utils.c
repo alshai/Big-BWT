@@ -25,3 +25,14 @@ FILE *open_aux_file(const char *base, const char *ext, const char *mode)
   free(name);
   return f;
 }
+
+int fd_open_aux_file(const char *base, const char *ext, int mode)
+{
+  char *name;
+  int e = asprintf(&name,"%s.%s",base,ext);
+  if(e<1) die("asprint error");
+  int fd = open(name,mode);
+  if(fd<0) die(__func__);  
+  free(name);
+  return fd;
+}
