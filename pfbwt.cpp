@@ -494,7 +494,7 @@ void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w,
   // in sa[dwords+w+1] we have the first word in the parsing since that $ is the lex. larger  
   assert(d[0]==Dollar);
   assert(sa[dwords+w+1]==0);
-  assert(d[dwords+w+2]>Dollar);  // end of Dollar chars 
+  assert(d[sa[dwords+w+2]]>Dollar);  // end of Dollar chars in the first column
   assert(lcp[dwords+w+2]==0); 
   // copy sa and lcp address
   *sap = sa;  *lcpp = lcp;  

@@ -8,8 +8,8 @@ extern "C" {
 #include <fcntl.h>
 
 #define Buf_size 20
-#define Min_bwt_range 10000000
-#define Sa_block      10000000
+#define Min_bwt_range 1000000
+#define Sa_block      1000000
 
 
 // ----- parallel conversion of sa/lcp ->da/sufLen --------------------
@@ -157,7 +157,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
 }
 
 // --------------------------------------------------------------------
-// multhread construction of the final BWT from dict and parse 
+// multithread construction of the final BWT from dict and parse 
 
 // range in the suffix array of the dictionary 
 typedef struct {
