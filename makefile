@@ -1,5 +1,5 @@
 # compilation flags
-CXX_FLAGS=-std=c++11 -O2 -Wall -Wextra -g
+CXX_FLAGS=-std=c++11 -O3 -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
@@ -10,8 +10,12 @@ EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x pfbw
 
 all: $(EXECS) 
 
-xerrors.o: xerrors.c xerrors.h
+
+gsa/gsacak.o: gsa/gsacak.c gsa/gsacak.h
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+gsa/gsacak64.o: gsa/gsacak.c gsa/gsacak.h
+	$(CC) $(CFLAGS) -c -o $@ $< -DM64
 
 bwtparse: bwtparse.c gsa/gsacak.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl

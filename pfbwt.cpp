@@ -33,10 +33,12 @@ extern "C" {
 using namespace std;
 using namespace __gnu_cxx;
 
-long binsearch(uint_t x, uint_t a[], long n);
-int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
-void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
-void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
+static long get_num_words(uint8_t *d, long n);
+static long binsearch(uint_t x, uint_t a[], long n);
+static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
+static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
+
 
 // class representing the suffix of a dictionary word
 // instances of this class are stored to a heap to handle the hard bwts
@@ -134,6 +136,8 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
       }
       else break;
     }
+    // ------------ moved to fwrite_chars_same_suffix --------
+    #if 0
     size_t numwords = id2merge.size(); 
     // numwords dictionary words contains the same suffix
     // case of a single word
@@ -181,7 +185,10 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
         }
       }
     }
-  }  
+    #endif
+    // -----------------------------------------------------
+    fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+  } 
   assert(full_words==dwords);
   cout << "Full words: " << full_words << endl;
   cout << "Easy bwt chars: " << easy_bwts << endl;
@@ -192,24 +199,22 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   delete[] sa;
 }  
 
-// compute the number of words in a dictionary
-long get_num_words(uint8_t *d, long n)
-{
-  long i,num=0;
-  for(i=0;i<n;i++)
-    if(d[i]==EndOfWord) num++;
-  assert(d[n-1]==EndOfDict);
-  return num;
-}
-
 int main(int argc, char** argv)
 {
   // check command line
+  #ifdef NOTHREADS
+  if(argc!=3) {
+    cerr << "Usage:\n\t";
+    cerr << argv[0] << " wsize file\n" << endl;
+    exit(1);
+  }
+  #else 
   if(argc!=3 && argc!=4) {
     cerr << "Usage:\n\t";
     cerr << argv[0] << " wsize file [num_threads]\n" << endl;
     exit(1);
   }
+  #endif
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
@@ -290,9 +295,8 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  // old version not using threads and working correctly 
   if(num_threads==0)
-    bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
+    bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]); // version not using threads
   else {   
     #ifdef NOTHREADS
     cerr << "Sorry, this is the no-threads executable and you requested " << num_threads << " threads\n";
@@ -312,9 +316,19 @@ int main(int argc, char** argv)
 // --------------------- aux functions ----------------------------------
 
 
+// compute the number of words in a dictionary
+static long get_num_words(uint8_t *d, long n)
+{
+  long i,num=0;
+  for(i=0;i<n;i++)
+    if(d[i]==EndOfWord) num++;
+  assert(d[n-1]==EndOfDict);
+  return num;
+}
+
 // binary search for x in an array a[0..n-1] that doesn't contain x
 // return the lowest position that is larger than x
-long binsearch(uint_t x, uint_t a[], long n)
+static long binsearch(uint_t x, uint_t a[], long n)
 {
   long lo=0; long hi = n-1;
   while(hi>lo) {
@@ -332,7 +346,7 @@ long binsearch(uint_t x, uint_t a[], long n)
 // return the length of the suffix starting in position p.
 // also write to seqid the id of the sequence containing that suffix 
 // n is the # of distinct words in the dictionary, hence the length of eos[]
-int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
+static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 {
   assert(p<eos[n-1]);
   *seqid = binsearch(p,eos,n);
@@ -342,7 +356,7 @@ int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 
 // compute the SA and LCP array for the set of (unique) dictionary words
 // using gSACA-K. Also do some checking based on the number and order of the special symbols
-void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
+static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
                           uint_t **sap, int_t **lcpp) // output parameters
 {
   uint_t *sa = new uint_t[dsize];
@@ -375,3 +389,47 @@ void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w,
   // copy sa and lcp address
   *sap = sa;  *lcpp = lcp;  
 }
+
+
+// write to the bwt all the characters preceding a given suffix
+// doing a merge operation if necessary
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  bool samechar=true;
+  for(size_t i=1;(i<numwords)&&samechar;i++)
+    samechar = (char2write[i-1]==char2write[i]); 
+  if(samechar) {
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      for(long j=istart[s];j<istart[s+1];j++)
+        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      easy_bwts +=  istart[s+1]- istart[s]; 
+    }
+  }
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
+
