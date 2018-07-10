@@ -136,57 +136,7 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
       }
       else break;
     }
-    // ------------ moved to fwrite_chars_same_suffix --------
-    #if 0
-    size_t numwords = id2merge.size(); 
-    // numwords dictionary words contains the same suffix
-    // case of a single word
-    if(numwords==1) {
-      uint32_t s = id2merge[0];
-      for(long j=istart[s];j<istart[s+1];j++)
-        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
-      easy_bwts +=  istart[s+1]- istart[s]; 
-      continue;   
-    }
-    // many words, same char?
-    bool samechar=true;
-    for(size_t i=1;(i<numwords)&&samechar;i++)
-      samechar = (char2write[i-1]==char2write[i]); 
-    if(samechar) {
-      for(size_t i=0; i<id2merge.size(); i++) {
-        uint32_t s = id2merge[i];
-        for(long j=istart[s];j<istart[s+1];j++)
-          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
-        easy_bwts +=  istart[s+1]- istart[s]; 
-      }
-      continue;
-    }
-    // many words, many chars...     
-    {
-      // create heap
-      vector<SeqId> heap;
-      for(size_t i=0; i<numwords; i++) {
-        uint32_t s = id2merge[i];
-        heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
-      }
-      std::make_heap(heap.begin(),heap.end());
-      while(heap.size()>0) {
-        // output char for the top of the heap
-        SeqId s = heap.front();
-        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
-        hard_bwts += 1;
-        // remove top 
-        pop_heap(heap.begin(),heap.end());
-        heap.pop_back();
-        // if remaining positions, reinsert to heap
-        if(s.next()) {
-          heap.push_back(s);
-          push_heap(heap.begin(),heap.end());
-        }
-      }
-    }
-    #endif
-    // -----------------------------------------------------
+    // output to fbwt the protion of the bwt corresponding to the current dictionary suffix
     fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
   } 
   assert(full_words==dwords);
