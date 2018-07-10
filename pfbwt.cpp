@@ -38,12 +38,6 @@ int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
 void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
 void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 
-static size_t get_bwt_size(char *name);
-static int get_bwt_fd(char *name);
-static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
-static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
-
-
 // class representing the suffix of a dictionary word
 // instances of this class are stored to a heap to handle the hard bwts
 struct SeqId {
@@ -70,8 +64,9 @@ bool SeqId::operator<(const SeqId& a) {
     return *bwtpos > *(a.bwtpos);
 }
 
+#ifndef NOTHREADS
 #include "pfthreads.hpp"
-
+#endif
 
 /* *******************************************************************
  * Computation of the final BWT
@@ -197,127 +192,6 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   delete[] sa;
 }  
 
-// computation of the final BWT via multithread sa,lcp conversion
-// followed by single thread bwt construction
-void bwt_mixed(uint8_t *d, long dsize, // dictionary and its size  
-         uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
-         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
-         int w, char *name, int numt)   // window size and base name for output file
-{  
-  (void) psize; // used only in assertions
-  // open output file 
-  FILE *fbwt = open_aux_file(name,"bwt","wb");
-  
-  // compute sa and bwt of d and do some checking on them 
-  uint_t *sa; int_t *lcp; 
-  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
-  // set d[0] ==0 as this is the EOF char in the final BWT
-  assert(d[0]==Dollar);
-  d[0]=0;
-
-  // convert sa,lcp->da,suflen + bit
-  sa2da(sa,lcp,d,dsize,dwords,w,numt);
-  uint_t *da = sa + (dwords+w+1);
-  uint_t *eos = sa+1;
-  long dasize= dsize - (dwords+w+1);
-  int_t *suflen = lcp + (dwords+w+1);
-  int_t *wlen = lcp+1;
-  lcp = NULL; sa = NULL; // make sure these are not used
-
-  // main loop: consider each entry in the DA[] of dict
-  time_t  start = time(NULL);  
-  long full_words = 0; 
-  long easy_bwts = 0;
-  long hard_bwts = 0;
-  long next;
-  for(long i=0; i< dasize; i=next ) {
-    // we are considering d[sa[i]....] belonging to da[i]
-    next = i+1;  // prepare for next iteration  
-    // discard if it is a small suffix 
-    if(suflen[i]<=w) continue;
-    uint32_t seqid = da[i]&0x7FFFFFFF;
-    assert(seqid<dwords);
-
-    // ----- simple case: the suffix is a full word 
-    if(suflen[i]==wlen[seqid]) {
-      full_words++;
-      for(long j=istart[seqid];j<istart[seqid+1];j++)
-        if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
-      continue; // proceed with next i 
-    }
-    // ----- hard case: there can be a group of equal suffixes starting at i
-    // save seqid and the corresponding char 
-    vector<uint32_t> id2merge(1,seqid); 
-    vector<uint8_t> char2write(1,d[eos[seqid]-suflen[i]-1]);
-    while(next<dasize && suflen[next]==suflen[i]) {
-      seqid = da[next]&0x7FFFFFFF;
-      if(da[next]&0x80000000u) {
-        assert(suflen[next]!=wlen[seqid]);   // the lcp cannot be greater than suffixLen
-        id2merge.push_back(seqid);           // sequence to consider
-        char2write.push_back(d[eos[seqid]-suflen[next]-1]);  // corresponding char
-        next++;
-      }
-      else break;
-    }
-    size_t numwords = id2merge.size(); 
-    // numwords dictionary words contains the same suffix
-    // case of a single word
-    if(numwords==1) {
-      uint32_t s = id2merge[0];
-      for(long j=istart[s];j<istart[s+1];j++)
-        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
-      easy_bwts +=  istart[s+1]- istart[s]; 
-      continue;   
-    }
-    // many words, same char?
-    bool samechar=true;
-    for(size_t i=1;(i<numwords)&&samechar;i++)
-      samechar = (char2write[i-1]==char2write[i]); 
-    if(samechar) {
-      for(size_t i=0; i<id2merge.size(); i++) {
-        uint32_t s = id2merge[i];
-        for(long j=istart[s];j<istart[s+1];j++)
-          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
-        easy_bwts +=  istart[s+1]- istart[s]; 
-      }
-      continue;
-    }
-    // many words, many chars...     
-    {
-      // create heap
-      vector<SeqId> heap;
-      for(size_t i=0; i<numwords; i++) {
-        uint32_t s = id2merge[i];
-        heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
-      }
-      std::make_heap(heap.begin(),heap.end());
-      while(heap.size()>0) {
-        // output char for the top of the heap
-        SeqId s = heap.front();
-        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
-        hard_bwts += 1;
-        // remove top 
-        pop_heap(heap.begin(),heap.end());
-        heap.pop_back();
-        // if remaining positions, reinsert to heap
-        if(s.next()) {
-          heap.push_back(s);
-          push_heap(heap.begin(),heap.end());
-        }
-      }
-    }
-  }  
-  assert(full_words==dwords); 
-  cout << "Full words: " << full_words << endl;
-  cout << "Easy bwt chars: " << easy_bwts << endl;
-  cout << "Hard bwt chars: " << hard_bwts << endl;
-  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds\n";    
-  fclose(fbwt);
-  delete[] lcp;
-  delete[] sa;
-} 
-
-
 // compute the number of words in a dictionary
 long get_num_words(uint8_t *d, long n)
 {
@@ -416,16 +290,18 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  //bwt_new(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
-  //bwt_multi_thread(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
   // old version not using threads and working correctly 
   if(num_threads==0)
     bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
-  else if(num_threads>=1000)
-    bwt_mixed(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads-1000);
-  else   
+  else {   
+    #ifdef NOTHREADS
+    cerr << "Sorry, this is the no-threads executable and you requested " << num_threads << " threads\n";
+    exit(EXIT_FAILURE);
+    #else
+    // multithread version
     bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
-  
+    #endif
+  }
   delete[] bwlast;
   delete[] ilist;
   delete[] occ;
