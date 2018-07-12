@@ -102,6 +102,22 @@ typedef uint32_t word_int_t;
 #define MAX_WORD_OCC (UINT32_MAX)
 typedef uint32_t occ_int_t;
 
+
+// -------------------------------------------------------------
+// struct containing command line parameters and other globals
+struct Args {
+   string inputFileName = "";
+   string parse0ext = "parse.";
+   int w;                 // sliding window size 
+   int p;                 // modulus for establishing stopping w-tuples 
+   bool SAinfo = false;
+};
+
+
+
+
+
+
 // -----------------------------------------------------------------
 // class to maintain a window in a string and its KR fingerprint
 struct KR_window {
@@ -381,6 +397,61 @@ void remapParse(map<uint64_t,word_stats> &wfreq, string old_parse, string new_pa
   for(auto& x : wfreq)
     assert(x.second.occ == occ[x.second.rank]);
 }
+ 
+
+
+// -------------------------------------------------------------
+// struct containing command line parameters and other globals
+struct Args {
+   string inputFileName = "";
+   string parse0ext = ".parse_old"; // extension tmp parse file 
+   string parseExt =  ".parse";     // extension final parse file  
+   string occExt =    ".occ";       // extension occurrences file  
+   string dictExt =   ".dict";      // extension dictionary file  
+   string dictExt =   ".last";      // extension file containing last chars   
+   string dictExt =   ".parse_sa";  // extension file containing sa info   
+   int w = 10;            // sliding window size and its default 
+   int p = 100;           // modulus for establishing stopping w-tuples 
+   bool SAinfo = false;
+};
+
+
+void print_help(char** argv, Args &args) {
+  cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl << endl;
+  cout << "Options: " << endl
+        << "-w WSIZE\tsliding window size, def. " << args.w << endl;
+        << "-p MOD\tmodulo for defining phrases def. " << args.p << endl;
+        << "-h\tshow help and exit" << endl;
+        << "-s\tcompute suffix array info" << endl;
+  #ifdef GZSTREAM
+  cout << "If the input file is gzipped it is automatically extracted\n";
+  #endif
+  exit(1);
+}
+
+void parseArgs( int argc, char** argv, Args& arg ) {
+   int c;
+   extern char *optarg;
+
+   string sarg;
+   while ((c = getopt( argc, argv, "p:w:sh") ) != -1) {
+      switch(c) {
+      case 's':
+      arg.SAinfo = true; break;
+      case 'w':
+      sarg.assign( optarg );
+      arg.w = stoi( sarg ); break;
+      case 'p':
+      sarg.assign( optarg );
+      arg.p = stoi( sarg ); break;
+      case '?':
+      cout << "Unknown option. Use -h for help." << endl;
+      exit(1);
+      break;
+      case 'h':
+         print_help(argv); break;
+      }
+   }
 
 
 int main(int argc, char** argv)
@@ -396,6 +467,9 @@ int main(int argc, char** argv)
     cerr <<endl;
     exit(1);
   }
+  
+  
+  
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
