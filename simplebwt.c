@@ -30,8 +30,9 @@ int main(int argc, char *argv[])
   uint8_t *Text;
   long n=0;
   int e;
+  time_t start_wc = time(NULL);
 
-  // intput data
+  // check input data
   if(argc<2){
     printf("\nUsage:\n\t %s name\n\n", argv[0]);
     puts("Compute the BWT of file name and output it to name.Bwt");
@@ -50,6 +51,13 @@ int main(int argc, char *argv[])
   // get file size
   if(fseek(fin,0,SEEK_END)!=0) die("fseek");
   n = ftell(fin);
+  #if !M64
+  if(n > 0x7FFFFFFE) {
+    printf("Text size greater than  2^31-2!\n");
+    printf("Please use 64 bit version\n");
+    exit(1);
+  }
+  #endif
   // ------ allocate and read text file
   Text = malloc(n+1);
   if(Text==NULL) die("malloc 1");
@@ -87,6 +95,7 @@ int main(int argc, char *argv[])
   // deallocate
   free(SA);
   free(Text);
+  printf("** Elapsed time: %.0lf wall clock seconds\n", difftime(time(NULL),start_wc));  
   return 0;
 }
 

@@ -12,16 +12,20 @@ used internally by the algorithm. The character 0 is used as the EOF
 in the output BWT. The dictionary and the parse should not be larger than 2GB. 
 
 Input files larger than 2GB are ok, but computing the BWT in the traditional way
-takes 9n bytes of RAM. If this is a problem, just don't use the option -c
+takes 9n bytes of RAM. If this is a problem, just don't use the option -c and
+check the correctness of the BWT by some other means (for example inverting it)
 """
 
 parse_exe = "./newscan.x"
 parsebwt_exe = "./bwtparse"
 parsebwt_exe64 = "./bwtparse64"
 pfbwt_exe = "./pfbwt.x"
+pfbwtNT_exe = "./pfbwtNT.x"
 pfbwt_exe64 = "./pfbwt64.x"
+pfbwtNT_exe64 = "./pfbwt64NT.x"
 bwt_exe = "./simplebwt"
 bwt_exe64 = "./simplebwt64"
+shasum_exe = "sha256sum"
 
 
 def main():
@@ -29,13 +33,15 @@ def main():
   parser.add_argument('input', help='input file name', type=str)
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
+  parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
+  parser.add_argument('--sum', help='compute output files shasum',action='store_true')
   #parser.add_argument('-v',  help='verbose',action='store_true')
   args = parser.parse_args()
   logfile_name = args.input + ".log"
   print("Sending logging messages to file:", logfile_name)
-  with open(logfile_name,"w") as logfile:  
+  with open(logfile_name,"a") as logfile:  
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
@@ -66,24 +72,38 @@ def main():
     # ----------- compute final BWT using dictionary and BWT of parse    
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
-      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input)
-    else:  
-      command = "{exe} {wsize} {file}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input)
+      # 64 bit version with and without threads
+      if args.t>0:
+        command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
+      else:
+        command = "{exe} {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
+    else:  # 32 bit version
+      if args.t>0:
+        command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
+      else:
+        command = "{exe} {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
+
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
     print("Elapsed time: {0:.4f}".format(time.time()-start))      
     print("Total construction time: {0:.4f}".format(time.time()-start0))      
 
+    # ---- compute sha256sum
+    if args.sum:
+      digest = file_digest(args.input +".bwt",logfile)
+      print("BWT {exe}: {digest}".format(exe=shasum_exe, digest=digest))
+
+
     # ---- delete intermediate files
-    if(args.k==False):
+    if args.k==False:
       command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
       print("==== Deleting temporary files.") # no need to show the command
       if(execute_command(command,logfile,logfile_name)!=True):
         return   
 
     # --- start checking ---
-    if(args.c):
+    if args.c:
       start = time.time()
       if(os.path.getsize(args.input)>= 2**31):
         command = "{exe} {file}".format(exe=bwt_exe64, file=args.input)
@@ -103,6 +123,15 @@ def main():
 
   print("==== Done")
 
+# compute hash digest for a file 
+def file_digest(name,logfile):
+    try:
+      hash_command = "{exe} {infile}".format(exe=shasum_exe, infile=name)
+      hashsum = subprocess.check_output(hash_command.split(),stderr=logfile)
+      hashsum = hashsum.decode("utf-8").split()[0]
+    except:
+      hashsum = "Error!" 
+    return hashsum  
 
 # execute command: return True is everything OK, False otherwise
 def execute_command(command,logfile,logfile_name):

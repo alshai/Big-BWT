@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <fcntl.h>
 
 
 // write error message and exit
@@ -24,4 +25,15 @@ FILE *open_aux_file(const char *base, const char *ext, const char *mode)
   if(f==NULL) die(name);  
   free(name);
   return f;
+}
+
+int fd_open_aux_file(const char *base, const char *ext, int flags)
+{
+  char *name;
+  int e = asprintf(&name,"%s.%s",base,ext);
+  if(e<1) die("asprint error");
+  int fd = open(name,flags,00666);
+  if(fd<0) die(__func__);  
+  free(name);
+  return fd;
 }

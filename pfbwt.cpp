@@ -2,7 +2,7 @@
  * pfbwt.cpp
  *  
  * Usage:
- *   pfbwt.x wsize file
+ *   mbwt.x wsize file numthreads
  *
  * See newscan.cpp for usage 
  * 
@@ -12,10 +12,12 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <semaphore.h>
 #include <ctime>
 #include <string>
 #include <fstream>
@@ -31,8 +33,15 @@ extern "C" {
 using namespace std;
 using namespace __gnu_cxx;
 
+static long get_num_words(uint8_t *d, long n);
+static long binsearch(uint_t x, uint_t a[], long n);
+static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
+static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
+
 
 // class representing the suffix of a dictionary word
+// instances of this class are stored to a heap to handle the hard bwts
 struct SeqId {
   uint32_t id;       // lex. id of the dictionary word to which the suffix belongs
   int remaining;     // remaining copies of the suffix to be considered  
@@ -57,70 +66,9 @@ bool SeqId::operator<(const SeqId& a) {
     return *bwtpos > *(a.bwtpos);
 }
 
-
-// binary search for x in an array a[0..n-1] that doesn't contain x
-// return the lowest position that is larger than x
-long binsearch(uint_t x, uint_t a[], long n)
-{
-  long lo=0; long hi = n-1;
-  while(hi>lo) {
-    assert( ((lo==0) || x>a[lo-1]) && x< a[hi]);
-    int mid = (lo+hi)/2;
-    assert(x!=a[mid]);  // x is not in a[]
-    if(x<a[mid]) hi = mid;
-    else lo = mid+1;
-  }
-  assert(((hi==0) || x>a[hi-1]) && x< a[hi]);
-  return hi; 
-}
-
-// return the length of the suffix starting in position p.
-// also write to seqid the id of the sequence containing that suffix 
-// n is the # of distinct words in the dictionary, hence the length of eos[]
-int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
-{
-  assert(p<eos[n-1]);
-  *seqid = binsearch(p,eos,n);
-  assert(eos[*seqid]> p); // distance between position p and the next $
-  return eos[*seqid] - p;
-}
-
-// compute the SA and LCP array for the set of (unique) dictionary words
-// using gSACA-K. Also do some checking based on the number and order of the special symbols
-void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
-                          uint_t **sap, int_t **lcpp) // output parameters
-{
-  uint_t *sa = new uint_t[dsize];
-  int_t *lcp = new int_t[dsize];
-  (void) dwords; (void) w;
-
-  cout  << "Each SA entry: " << sizeof(*sa) << " bytes\n";
-  cout  << "Each LCP entry: " << sizeof(*lcp) << " bytes\n";
-
-  cout << "Computing SA and LCP of dictionary" << endl; 
-  time_t  start = time(NULL);
-  gsacak(d,sa,lcp,NULL,dsize);
-  cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
-  // ------ do some checking on the sa
-  assert(d[dsize-1]==EndOfDict);
-  assert(sa[0]==(unsigned long)dsize-1);// sa[0] is the EndOfDict symbol 
-  for(long i=0;i<dwords;i++) 
-    assert(d[sa[i+1]]==EndOfWord); // there are dwords EndOfWord symbols 
-  // EndOfWord symbols are in position order, so the last is d[dsize-2]    
-  assert(sa[dwords]==(unsigned long)dsize-2);  
-  // there are wsize+1 $ symbols: 
-  // one at the beginning of the first word, wsize at the end of the last word
-  for(long i=0;i<=w;i++)
-    assert(d[sa[i+dwords+1]]==Dollar);         
-  // in sa[dwords+w+1] we have the first word in the parsing since that $ is the lex. larger  
-  assert(d[0]==Dollar);
-  assert(sa[dwords+w+1]==0);
-  assert(d[dwords+w+2]>Dollar);  // end of Dollar chars 
-  assert(lcp[dwords+w+2]==0); 
-  // copy sa and lcp address
-  *sap = sa;  *lcpp = lcp;  
-}
-
+#ifndef NOTHREADS
+#include "pfthreads.hpp"
+#endif
 
 /* *******************************************************************
  * Computation of the final BWT
@@ -188,54 +136,9 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
       }
       else break;
     }
-    size_t numwords = id2merge.size(); 
-    // numwords dictionary words contains the same suffix
-    // case of a single word
-    if(numwords==1) {
-      uint32_t s = id2merge[0];
-      for(long j=istart[s];j<istart[s+1];j++)
-        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
-      easy_bwts +=  istart[s+1]- istart[s]; 
-      continue;   
-    }
-    // many words, same char?
-    bool samechar=true;
-    for(size_t i=1;(i<numwords)&&samechar;i++)
-      samechar = (char2write[i-1]==char2write[i]); 
-    if(samechar) {
-      for(size_t i=0; i<id2merge.size(); i++) {
-        uint32_t s = id2merge[i];
-        for(long j=istart[s];j<istart[s+1];j++)
-          if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 2");
-        easy_bwts +=  istart[s+1]- istart[s]; 
-      }
-      continue;
-    }
-    // many words, many chars...     
-    {
-      // create heap
-      vector<SeqId> heap;
-      for(size_t i=0; i<numwords; i++) {
-        uint32_t s = id2merge[i];
-        heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
-      }
-      std::make_heap(heap.begin(),heap.end());
-      while(heap.size()>0) {
-        // output char for the top of the heap
-        SeqId s = heap.front();
-        if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
-        hard_bwts += 1;
-        // remove top 
-        pop_heap(heap.begin(),heap.end());
-        heap.pop_back();
-        // if remaining positions, reinsert to heap
-        if(s.next()) {
-          heap.push_back(s);
-          push_heap(heap.begin(),heap.end());
-        }
-      }
-    }
-  }  
+    // output to fbwt the protion of the bwt corresponding to the current dictionary suffix
+    fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+  } 
   assert(full_words==dwords);
   cout << "Full words: " << full_words << endl;
   cout << "Easy bwt chars: " << easy_bwts << endl;
@@ -246,24 +149,23 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   delete[] sa;
 }  
 
-// compute the number of words in a dictionary
-long get_num_words(uint8_t *d, long n)
-{
-  long i,num=0;
-  for(i=0;i<n;i++)
-    if(d[i]==EndOfWord) num++;
-  assert(d[n-1]==EndOfDict);
-  return num;
-}
-
 int main(int argc, char** argv)
 {
+  time_t start = time(NULL);  
   // check command line
+  #ifdef NOTHREADS
   if(argc!=3) {
     cerr << "Usage:\n\t";
     cerr << argv[0] << " wsize file\n" << endl;
     exit(1);
   }
+  #else 
+  if(argc!=3 && argc!=4) {
+    cerr << "Usage:\n\t";
+    cerr << argv[0] << " wsize file [num_threads]\n" << endl;
+    exit(1);
+  }
+  #endif
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
@@ -271,6 +173,12 @@ int main(int argc, char** argv)
 
   // translate command line parameters
   int w = atoi(argv[1]);             // sliding window size   
+  int num_threads=0;                 // number of helper threads
+  if(argc==4) num_threads = atoi(argv[3]);
+  if(num_threads<0) {
+    cerr << "Number of helper threads cannot be negative!\n";
+    exit(1);
+  }
 
   // read dictionary file 
   FILE *g = open_aux_file(argv[2],"dict","rb");
@@ -279,6 +187,14 @@ int main(int argc, char** argv)
   if(dsize<0) die("ftell");
   if(dsize<=1+w) die("invalid dictionary file");
   cout  << "Dictionary file size: " << dsize << endl;
+  #if !M64
+  if(dsize > 0x7FFFFFFE) {
+    printf("Dictionary size greater than  2^31-2!\n");
+    printf("Please use 64 bit version\n");
+    exit(1);
+  }
+  #endif
+
   uint8_t *d = new uint8_t[dsize];  
   rewind(g);
   long e = fread(d,1,dsize,g);
@@ -338,13 +254,142 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]);
-  
+  if(num_threads==0)
+    bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]); // version not using threads
+  else {   
+    #ifdef NOTHREADS
+    cerr << "Sorry, this is the no-threads executable and you requested " << num_threads << " threads\n";
+    exit(EXIT_FAILURE);
+    #else
+    // multithread version
+    bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
+    #endif
+  }
   delete[] bwlast;
   delete[] ilist;
   delete[] occ;
   delete[] d;  
+  cout << "** Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
   return 0;
 }
 
+// --------------------- aux functions ----------------------------------
+
+
+// compute the number of words in a dictionary
+static long get_num_words(uint8_t *d, long n)
+{
+  long i,num=0;
+  for(i=0;i<n;i++)
+    if(d[i]==EndOfWord) num++;
+  assert(d[n-1]==EndOfDict);
+  return num;
+}
+
+// binary search for x in an array a[0..n-1] that doesn't contain x
+// return the lowest position that is larger than x
+static long binsearch(uint_t x, uint_t a[], long n)
+{
+  long lo=0; long hi = n-1;
+  while(hi>lo) {
+    assert( ((lo==0) || x>a[lo-1]) && x< a[hi]);
+    int mid = (lo+hi)/2;
+    assert(x!=a[mid]);  // x is not in a[]
+    if(x<a[mid]) hi = mid;
+    else lo = mid+1;
+  }
+  assert(((hi==0) || x>a[hi-1]) && x< a[hi]);
+  return hi; 
+}
+
+
+// return the length of the suffix starting in position p.
+// also write to seqid the id of the sequence containing that suffix 
+// n is the # of distinct words in the dictionary, hence the length of eos[]
+static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
+{
+  assert(p<eos[n-1]);
+  *seqid = binsearch(p,eos,n);
+  assert(eos[*seqid]> p); // distance between position p and the next $
+  return eos[*seqid] - p;
+}
+
+// compute the SA and LCP array for the set of (unique) dictionary words
+// using gSACA-K. Also do some checking based on the number and order of the special symbols
+static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
+                          uint_t **sap, int_t **lcpp) // output parameters
+{
+  uint_t *sa = new uint_t[dsize];
+  int_t *lcp = new int_t[dsize];
+  (void) dwords; (void) w;
+
+  cout  << "Each SA entry: " << sizeof(*sa) << " bytes\n";
+  cout  << "Each LCP entry: " << sizeof(*lcp) << " bytes\n";
+
+  cout << "Computing SA and LCP of dictionary" << endl; 
+  time_t  start = time(NULL);
+  gsacak(d,sa,lcp,NULL,dsize);
+  cout << "Computing SA/LCP took " << difftime(time(NULL),start) << " wall clock seconds\n";  
+  // ------ do some checking on the sa
+  assert(d[dsize-1]==EndOfDict);
+  assert(sa[0]==(unsigned long)dsize-1);// sa[0] is the EndOfDict symbol 
+  for(long i=0;i<dwords;i++) 
+    assert(d[sa[i+1]]==EndOfWord); // there are dwords EndOfWord symbols 
+  // EndOfWord symbols are in position order, so the last is d[dsize-2]    
+  assert(sa[dwords]==(unsigned long)dsize-2);  
+  // there are wsize+1 $ symbols: 
+  // one at the beginning of the first word, wsize at the end of the last word
+  for(long i=0;i<=w;i++)
+    assert(d[sa[i+dwords+1]]==Dollar);         
+  // in sa[dwords+w+1] we have the first word in the parsing since that $ is the lex. larger  
+  assert(d[0]==Dollar);
+  assert(sa[dwords+w+1]==0);
+  assert(d[sa[dwords+w+2]]>Dollar);  // end of Dollar chars in the first column
+  assert(lcp[dwords+w+2]==0); 
+  // copy sa and lcp address
+  *sap = sa;  *lcpp = lcp;  
+}
+
+
+// write to the bwt all the characters preceding a given suffix
+// doing a merge operation if necessary
+static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  bool samechar=true;
+  for(size_t i=1;(i<numwords)&&samechar;i++)
+    samechar = (char2write[i-1]==char2write[i]); 
+  if(samechar) {
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      for(long j=istart[s];j<istart[s+1];j++)
+        if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      easy_bwts +=  istart[s+1]- istart[s]; 
+    }
+  }
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
 

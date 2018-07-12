@@ -17,7 +17,7 @@
  * The algorithm computes the prefix free parsing of 
  *     T = (0x2)file_content(0x2)^wsize
  * in a dictionary of words D and a parsing P of T in terms of the  
- * dictionary words. Note that the words in the parsing overalp by wsize.
+ * dictionary words. Note that the words in the parsing overlap by wsize.
  * Let d denote the number of words in D and p the number of phrases in 
  * the parsing P
  * 
@@ -35,8 +35,8 @@
  * 
  * file.parse
  * containing the parse P with each word identified with its 1-based lexicographic 
- * rank (ie its position in D). We assume the number of distintc words
- * is at most 2^32-2, so the size is 4p bytes
+ * rank (ie its position in D). We assume the number of distinct words
+ * is at most 2^32-1, so the size is 4p bytes
  * 
  * file.last 
  * contaning the charater in positon w+1 from the end for each dictionary word
@@ -358,7 +358,7 @@ void writeDictOcc(map<uint64_t,word_stats> &wfreq, vector<const string *> &sorte
 
 void remapParse(map<uint64_t,word_stats> &wfreq, string old_parse, string new_parse)
 {
-  // double check occ
+  // recompute to double check occ
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
   // open parse files 
   FILE *oldp = fopen(old_parse.c_str(),"rb");
@@ -377,6 +377,7 @@ void remapParse(map<uint64_t,word_stats> &wfreq, string old_parse, string new_pa
   }
   if(fclose(newp)!=0) die("new parse close");
   if(fclose(oldp)!=0) die("old parse close");
+  // check old and recomputed occ
   for(auto& x : wfreq)
     assert(x.second.occ == occ[x.second.rank]);
 }
@@ -400,7 +401,8 @@ int main(int argc, char** argv)
     printf(" %s",argv[i]);
   puts("");
 
-  time_t start_wc = time(NULL);
+  time_t start_main = time(NULL);
+  time_t start_wc = start_main;
   
   // translate command line parameters
   int w = atoi(argv[1]);                 // sliding window size 
@@ -472,7 +474,7 @@ int main(int argc, char** argv)
   cout << "Generating remapped parse file\n";
   remapParse(wordFreq, fparse, fname+".parse");
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
-  
+  cout << "** Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
 }
 
