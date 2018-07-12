@@ -94,6 +94,7 @@ int main(int argc, char *argv[])
   long n;         // length of Text[] (not including final 0 symbol)
   size_t s;
 
+  time_t start_wc = time(NULL);
   // check input data
   if(argc<2){
     printf("Usage: %s basename\n\n", argv[0]);
@@ -202,5 +203,6 @@ int main(int argc, char *argv[])
   free(occ);
   free(SA);
   free(Text);
+  printf("** Elapsed time: %.0lf wall clock seconds\n", difftime(time(NULL),start_wc));  
   return 0;
 }

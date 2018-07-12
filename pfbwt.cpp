@@ -151,6 +151,7 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
 
 int main(int argc, char** argv)
 {
+  time_t start = time(NULL);  
   // check command line
   #ifdef NOTHREADS
   if(argc!=3) {
@@ -186,6 +187,14 @@ int main(int argc, char** argv)
   if(dsize<0) die("ftell");
   if(dsize<=1+w) die("invalid dictionary file");
   cout  << "Dictionary file size: " << dsize << endl;
+  #if !M64
+  if(dsize > 0x7FFFFFFE) {
+    printf("Dictionary size greater than  2^31-2!\n");
+    printf("Please use 64 bit version\n");
+    exit(1);
+  }
+  #endif
+
   uint8_t *d = new uint8_t[dsize];  
   rewind(g);
   long e = fread(d,1,dsize,g);
@@ -260,6 +269,7 @@ int main(int argc, char** argv)
   delete[] ilist;
   delete[] occ;
   delete[] d;  
+  cout << "** Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
   return 0;
 }
 

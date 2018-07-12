@@ -7,9 +7,9 @@ extern "C" {
 }
 #include <fcntl.h>
 
-#define Buf_size 20
-#define Min_bwt_range 1000000
-#define Sa_block      1000000
+#define Buf_size 40
+#define Min_bwt_range 100000
+#define Sa_block      100000
 
 //static size_t get_bwt_size(char *name);
 static int get_bwt_fd(char *name);
@@ -363,7 +363,6 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
       xsem_wait(&td.free_slots,__LINE__,__FILE__);
       td.buffer[pindex++ % Buf_size] = r;
       xsem_post(&td.data_items,__LINE__,__FILE__);
-      //printf("%ld -- %ld (%ld -- %ld)\n",written,written+entries, r.start, r.end);
       written += entries; entries=0;
     }
     next = i+1;  // prepare for next iteration  

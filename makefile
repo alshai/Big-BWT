@@ -48,7 +48,7 @@ pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o xerrors.o
 pfbwtNT.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
 
-pfbwtNT64.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
+pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS -DM64
 
 
