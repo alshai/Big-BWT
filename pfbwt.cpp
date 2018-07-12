@@ -269,7 +269,7 @@ int main(int argc, char** argv)
   delete[] ilist;
   delete[] occ;
   delete[] d;  
-  cout << "** Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
+  cout << "==== Elapsed time: " << difftime(time(NULL),start) << " wall clock seconds\n";      
   return 0;
 }
 

@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
   if(s!=n) die("last read");
   if(fclose(lastin)!=0) die("last file close");
   
-  // transform SA->BWT and write remapped last array
+  // transform SA->BWT inplace and write remapped last array
   sa_index_t *BWTsa = SA;
   assert(n>1);
   assert(SA[0]==n);
@@ -203,6 +203,6 @@ int main(int argc, char *argv[])
   free(occ);
   free(SA);
   free(Text);
-  printf("** Elapsed time: %.0lf wall clock seconds\n", difftime(time(NULL),start_wc));  
+  printf("==== Elapsed time: %.0lf wall clock seconds\n", difftime(time(NULL),start_wc));  
   return 0;
 }

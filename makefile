@@ -30,10 +30,10 @@ simplebwt64: simplebwt.c gsa/gsacak64.o
 	$(CC) $(CFLAGS) -o $@ $^ -DM64
 
 # cnewscan executable to scan gzipped files (currently not active) 
-cnewscan.x: newscan.cpp malloc_count.o 
+cnewscan.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl 
 
-newscan.x: newscan.cpp malloc_count.o  
+newscan.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
 
 

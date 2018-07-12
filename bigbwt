@@ -45,7 +45,7 @@ def main():
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
-    command = "{exe} {wsize} {modulus} {file}".format(exe=parse_exe, 
+    command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):

@@ -85,14 +85,13 @@
 #ifdef GZSTREAM
 #include <gzstream.h>
 #endif
+extern "C" {
+#include "utils.h"
+}
 
 
 using namespace std;
 using namespace __gnu_cxx;
-
-#define Dollar    0x2  // special char for the parsing algorithm, must be the highest special char 
-#define EndOfWord 0x1  // word delimiter for the plain dictionary file
-#define EndOfDict 0x0  // end of dictionary char 
 
 // =============== algorithm limits =================== 
 // maximum number of distinct words
@@ -107,15 +106,16 @@ typedef uint32_t occ_int_t;
 // struct containing command line parameters and other globals
 struct Args {
    string inputFileName = "";
-   string parse0ext = "parse.";
-   int w;                 // sliding window size 
-   int p;                 // modulus for establishing stopping w-tuples 
+   string parse0ext = ".parse_old"; // extension tmp parse file 
+   string parseExt =  ".parse";     // extension final parse file  
+   string occExt =    ".occ";       // extension occurrences file  
+   string dictExt =   ".dict";      // extension dictionary file  
+   string lastExt =   ".last";      // extension file containing last chars   
+   string saExt =   ".parse_sa";    // extension file containing sa info   
+   int w = 10;            // sliding window size and its default 
+   int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;
 };
-
-
-
-
 
 
 // -----------------------------------------------------------------
@@ -180,12 +180,12 @@ struct word_stats {
 };
 
 
+
 void die(const string s)
 {
   perror(s.c_str());
   exit(1);
 }
-
 
 // compute 64-bit KR hash of a string 
 uint64_t kr_hash(string s) {
@@ -204,7 +204,7 @@ uint64_t kr_hash(string s) {
 
 // save current word in the freq map and update it leaving only the 
 // last minsize chars which is the overlap with next word  
-void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last)
+void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
 {
   if(w.size() < minsize+1) return;
   // get the hash value and write it to the temporary parse file
@@ -230,7 +230,11 @@ void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>& 
       }
   }
   // output char w+1 from the end
-  if(fputc(w[w.size()- minsize-1],last)==EOF) die(".last write");
+  if(fputc(w[w.size()- minsize-1],last)==EOF) die("Error writing to .last file");
+  // compute ending position +1 of current word and write it to sa file 
+  if(pos==0) pos = w.size()-1;
+  else pos += w.size() -minsize; 
+  if(sa) if(fwrite(&pos,BBYTES,1,sa)!=1) die("Error writing to sa info file");
   // keep only the overlapping part of the window
   w.erase(0,w.size() - minsize);
 }
@@ -238,27 +242,42 @@ void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>& 
 
 // prefix free parse of file fnam. w is the window size, p is the modulus 
 // use a KR-hash as the word ID that is immediately written to the parse file
-void process_file(int w, int p, string fnam, KR_window& krw, map<uint64_t,word_stats>& wordFreq, FILE *tmp_parse_file)
+void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
 {
-  //open a, possibly compressed input file
+  //open a, possibly compressed, input file
+  string fnam = arg.inputFileName;
   #ifdef GZSTREAM 
   igzstream f(fnam.c_str());
   #else
   ifstream f(fnam.c_str());
-  #endif  
-  
+  #endif    
   if(!f.rdbuf()->is_open()) {// is_open does not work on igzstreams 
     perror(__func__);
     throw new std::runtime_error("Cannot open input file " + string(fnam));
   }
 
-  // open file that will contain the char at position -(w+1) of each word
-  string fnamelast = fnam + ".last";
+  // open the output parsing file 
+  string fparse = arg.inputFileName + arg.parse0ext;
+  cout << "Writing tmp parsing to file " << fparse << endl;
+  FILE *g = fopen(fparse.c_str(),"wb");
+  if(g==NULL) die("Cannot open " + fparse);
+
+  // open output file containing the char at position -(w+1) of each word
+  string fnamelast = arg.inputFileName + arg.lastExt;
   FILE *last_file = fopen(fnamelast.c_str(),"wb");
-  if(last_file==NULL) die(".last file open"); 
+  if(last_file==NULL) die("Cannot open " + fnamelast); 
+  
+  // if requested open file containing the starting position of each word
+  FILE *sa_file = NULL; string sa_name = "<not used>";
+  if(arg.SAinfo) {
+    sa_name = arg.inputFileName + arg.saExt;
+    sa_file = fopen(sa_name.c_str(),"wb");
+    if(sa_file==NULL) die("Cannot open " + sa_name);
+  } 
   
   // main loop on the chars of the input file
   int c;
+  uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
   // init first word in the parsing with a NUL char 
   string word("");
   word.append(1,Dollar);
@@ -266,16 +285,20 @@ void process_file(int w, int p, string fnam, KR_window& krw, map<uint64_t,word_s
     if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
     word.append(1,c);
     uint64_t hash = krw.addchar(c);
-    if(hash%p==0) {
+    if(hash%arg.p==0) {
       // end of word, save it and write its full hash to the output file
       // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,w,wordFreq,tmp_parse_file,last_file);
+      save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
     }    
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(w,Dollar);
-  save_update_word(word,w,wordFreq,tmp_parse_file,last_file);
-  if(fclose(last_file)!=0) die(".last close");  
+  word.append(arg.w,Dollar);
+  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+  // close input and output files 
+  if(sa_file) if(fclose(sa_file)!=0) die("Error closing "+ sa_name);
+  if(fclose(last_file)!=0) die("Error closing "+ fnamelast );  
+  if(fclose(g)!=0) die("Error closing "+ fparse);
+  if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
   f.close();      
 }
 
@@ -343,44 +366,47 @@ bool pstringCompare(const string *a, const string *b)
 
 // given the sorted dictionary and the frequency map write the dictionary and occ files
 // also compute the 1-based rank for each hash
-void writeDictOcc(map<uint64_t,word_stats> &wfreq, vector<const string *> &sortedDict, string fname)
+void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const string *> &sortedDict)
 {
   assert(sortedDict.size() == wfreq.size());
   // open dictionary and occ files 
-  string fdictname = fname + ".dict";
+  string fdictname = arg.inputFileName + arg.dictExt;
   FILE *fdict = fopen(fdictname.c_str(),"wb");
-  if(fdict==NULL) die("dictionary open");
-  string foccname = fname + ".occ";
+  if(fdict==NULL) die("Cannot open " + fdictname);
+  string foccname = arg.inputFileName + arg.occExt;
   FILE *focc = fopen(foccname.c_str(),"wb");
-  if(focc==NULL) die("occ file open");
+  if(focc==NULL) die("Cannot open " + foccname);
   
   word_int_t wrank = 1; // current word rank (1 based)
   for(auto x: sortedDict) {
     size_t s = fwrite((*x).data(),1,(*x).size(), fdict);
-    if(s!=(*x).size()) die("dictionary word write");
-    if(fputc(EndOfWord,fdict)==EOF) die("dictionary EndOfWord write");
+    if(s!=(*x).size()) die("Error writing to " + fdictname);
+    if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to " + fdictname);
     uint64_t hash = kr_hash(*x);
     auto& wf = wfreq.at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
-    if(s!=1) die("occfile write");
+    if(s!=1) die("Error writing to " + foccname);
     assert(wf.rank==0);
     wf.rank = wrank++;
   }
-  if(fputc(EndOfDict,fdict)==EOF) die("dictionary EndOfDict write");
-  if(fclose(focc)!=0) die("occfile close");
-  if(fclose(fdict)!=0) die("dictionary close");
+  if(fputc(EndOfDict,fdict)==EOF) die("Error writing EndOfDict to " + fdictname);
+  if(fclose(focc)!=0) die("Error closing " + foccname);
+  if(fclose(fdict)!=0) die("Error closing" + fdictname);
 }
 
-void remapParse(map<uint64_t,word_stats> &wfreq, string old_parse, string new_parse)
+void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
 {
+  // build file names
+  string old_parse = arg.inputFileName + arg.parse0ext;
+  string new_parse = arg.inputFileName + arg.parseExt;
   // recompute to double check occ
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
   // open parse files 
   FILE *oldp = fopen(old_parse.c_str(),"rb");
-  if(oldp==NULL) die("old parse open");
+  if(oldp==NULL) die("Error opening " + old_parse);
   FILE *newp = fopen(new_parse.c_str(),"wb");
-  if(newp==NULL) die("new parse open");
+  if(newp==NULL) die("Error opening" + new_parse);
   uint64_t hash;
   while(!feof(oldp)) {
     size_t s = fread(&hash,sizeof(hash),1,oldp);
@@ -389,40 +415,25 @@ void remapParse(map<uint64_t,word_stats> &wfreq, string old_parse, string new_pa
     word_int_t rank = wfreq.at(hash).rank;
     occ[rank]++;
     s = fwrite(&rank,sizeof(rank),1,newp);
-    if(s!=1) die("New parse write");
+    if(s!=1) die("Error writing to " + new_parse);
   }
-  if(fclose(newp)!=0) die("new parse close");
-  if(fclose(oldp)!=0) die("old parse close");
-  // check old and recomputed occ
+  if(fclose(newp)!=0) die("Error closing " + new_parse);
+  if(fclose(oldp)!=0) die("Error closing " + old_parse);
+  // check old and recomputed occ coincide 
   for(auto& x : wfreq)
     assert(x.second.occ == occ[x.second.rank]);
 }
  
 
 
-// -------------------------------------------------------------
-// struct containing command line parameters and other globals
-struct Args {
-   string inputFileName = "";
-   string parse0ext = ".parse_old"; // extension tmp parse file 
-   string parseExt =  ".parse";     // extension final parse file  
-   string occExt =    ".occ";       // extension occurrences file  
-   string dictExt =   ".dict";      // extension dictionary file  
-   string dictExt =   ".last";      // extension file containing last chars   
-   string dictExt =   ".parse_sa";  // extension file containing sa info   
-   int w = 10;            // sliding window size and its default 
-   int p = 100;           // modulus for establishing stopping w-tuples 
-   bool SAinfo = false;
-};
-
 
 void print_help(char** argv, Args &args) {
-  cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl << endl;
-  cout << "Options: " << endl
-        << "-w WSIZE\tsliding window size, def. " << args.w << endl;
-        << "-p MOD\tmodulo for defining phrases def. " << args.p << endl;
-        << "-h\tshow help and exit" << endl;
-        << "-s\tcompute suffix array info" << endl;
+  cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
+  cout << "  Options: " << endl
+        << "\t-w W\tsliding window size, def. " << args.w << endl
+        << "\t-p M\tmodulo for defining phrases def. " << args.p << endl
+        << "\t-h  \tshow help and exit" << endl
+        << "\t-s  \tcompute suffix array info" << endl;
   #ifdef GZSTREAM
   cout << "If the input file is gzipped it is automatically extracted\n";
   #endif
@@ -436,75 +447,74 @@ void parseArgs( int argc, char** argv, Args& arg ) {
    string sarg;
    while ((c = getopt( argc, argv, "p:w:sh") ) != -1) {
       switch(c) {
-      case 's':
-      arg.SAinfo = true; break;
-      case 'w':
-      sarg.assign( optarg );
-      arg.w = stoi( sarg ); break;
-      case 'p':
-      sarg.assign( optarg );
-      arg.p = stoi( sarg ); break;
-      case '?':
-      cout << "Unknown option. Use -h for help." << endl;
-      exit(1);
-      break;
-      case 'h':
-         print_help(argv); break;
+        case 's':
+        arg.SAinfo = true; break;
+        case 'w':
+        sarg.assign( optarg );
+        arg.w = stoi( sarg ); break;
+        case 'p':
+        sarg.assign( optarg );
+        arg.p = stoi( sarg ); break;
+        case 'h':
+           print_help(argv, arg); exit(1);
+        case '?':
+        cout << "Unknown option. Use -h for help." << endl;
+        exit(1);
       }
    }
+   if (argc == optind) {
+      cout << "No input filename given" << endl;
+      print_help(argv,arg);
+   }
+   if (argc>optind+1) {
+      cout << "Too many input parameters" << endl;
+      print_help(argv,arg);
+   }
+   arg.inputFileName.assign( argv[optind] );
+   // check algorithm parameters 
+   if(arg.w <4) {
+     cout << "Windows size must be at least 4\n";
+     exit(1);
+   }
+   if(arg.p<10) {
+     cout << "Modulus must be at leas 10\n";
+     exit(1);
+   }
+}
+
 
 
 int main(int argc, char** argv)
 {
-  // check command line
-  if(argc!=4) {
-    cerr << "Usage:\n\t";
-    cerr << argv[0] << " wsize modulus file\n" << endl;
-    cerr << "Input file can be anything not containing chars 0x00 0x01 0x02\n";
-    #ifdef GZSTREAM
-    cerr << "If the input file is gzipped it is automatically extracted\n";
-    #endif
-    cerr <<endl;
-    exit(1);
-  }
-  
-  
   
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
   puts("");
 
+  // translate command line parameters
+  Args arg;
+  parseArgs(argc, argv, arg);
+  cout << "Windows size: " << arg.w << endl;
+  cout << "Stop word modulus: " << arg.p << endl;  
+
   time_t start_main = time(NULL);
   time_t start_wc = start_main;
   
-  // translate command line parameters
-  int w = atoi(argv[1]);                 // sliding window size 
-  int p = atoi(argv[2]);                 // modulus for stopping w-tuples 
-  assert(w>1 && p>1);
-  cout << "Windows size: " << w << endl;
-  cout << "Stop word modulus: " << p << endl;  
-
   // init window-based karp-rabin fingerprint
-  KR_window krw(w); // input is window size and alphabet 
+  KR_window krw(arg.w); // input is window size and alphabet 
   // init sorted map counting the number of occurrences of each word
   map<uint64_t,word_stats> wordFreq;  
-  // open the parsing file 
-  string fname(argv[3]);
-  string fparse = fname + ".parse_old";
-  cout << "Writing parsing to file " << fparse << endl;
-  FILE *g = fopen(fparse.c_str(),"wb");
-  if(g==NULL) die("Open parse file");
 
-  // parsing input file 
+  // ------------ parsing input file 
   try {
-      process_file(w,p,fname,krw,wordFreq, g);
+      process_file(arg,krw,wordFreq);
   }
   catch(const std::bad_alloc&) {
       cout << "Out of memory... emergency exit\n";
       die("bad alloc exception");
   }
-  if(fclose(g)!=0) die("parse_old close");  
+  // first report 
   uint64_t totChar = krw.tot_char;
   uint64_t totDWord = wordFreq.size();
   cout << "Total input symbols: " << totChar << endl;
@@ -517,9 +527,7 @@ int main(int argc, char** argv)
     exit(1);
   }
 
-  // report statistics and, if last parameter is true, write old style dictionary 
-  // old_style_report(wordFreq,totChar,fname,true);
-  
+  // -------------- second pass  
   start_wc = time(NULL);
   // create array of dictionary words
   vector<const string *> dictArray;
@@ -539,16 +547,16 @@ int main(int argc, char** argv)
   sort(dictArray.begin(), dictArray.end(),pstringCompare);
   // write plain dictionary and occ file, also compute rank for each hash 
   cout << "Writing plain dictionary and occ file\n";
-  writeDictOcc(wordFreq, dictArray,fname);
+  writeDictOcc(arg, wordFreq, dictArray);
   dictArray.clear(); // reclaim memory
   cout << "Dictionary construction took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
     
   // remap parse file
   start_wc = time(NULL);
   cout << "Generating remapped parse file\n";
-  remapParse(wordFreq, fparse, fname+".parse");
+  remapParse(arg, wordFreq);
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
-  cout << "** Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
+  cout << "==== Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
 }
 
