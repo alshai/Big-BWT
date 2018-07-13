@@ -34,6 +34,7 @@ def main():
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
   parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
+  parser.add_argument('-s',  help='compute Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
   parser.add_argument('--sum', help='compute output files shasum',action='store_true')
@@ -47,6 +48,7 @@ def main():
     start0 = start = time.time()
     command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
+    if args.s: command += " -s"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -64,6 +66,7 @@ def main():
       command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
+    if args.s: command += " -s"
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return

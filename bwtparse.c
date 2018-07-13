@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
+#include <stdbool.h>
 #include "gsa/gsacak.h"
 #include "utils.h" 
 
@@ -36,11 +38,19 @@
 // note that here we use sacak (SA computation for a single string of 32 bit symbols) 
 typedef uint_t sa_index_t;
 
+// -------------------------------------------------------------
+// struct containing command line parameters and other globals
+typedef struct {
+   char *basename;
+   bool SAinfo;
+} Args;
 
-// read the parse file 
-uint32_t *read_parse(char *basename,long *tsize) 
+
+// read the parse file, add a 0 EOS symbol and return a pointer 
+// to a new allocate utin32_t array containing it. Store size in *tsize  
+static uint32_t *read_parse(char *basename, long *tsize) 
 {  
-  FILE *parse = open_aux_file(basename,"parse","rb");
+  FILE *parse = open_aux_file(basename,EXTPARSE,"rb");
   // get file size
   if(fseek(parse,0,SEEK_END)!=0) die("parse fseek");
   long nn = ftell(parse);
@@ -57,7 +67,7 @@ uint32_t *read_parse(char *basename,long *tsize)
     exit(1);
   }
   #else
-  // if in 64 bit mode, the number of words is at most 2^32-2 for now
+  // if in 64 bit mode, the number of words is at most 2^32-2 (for now)
   if(nn/4 > 0xFFFFFFFEu) {
     printf("Input containing more than 2^32-2 phrases!\n");
     printf("This is currently a hard limit\n");
@@ -66,7 +76,7 @@ uint32_t *read_parse(char *basename,long *tsize)
   #endif
   printf("Parse file contains %ld words\n",nn/4);
   long n = nn/4;
-  // ------ allocate and read text file
+  // ------ allocate and read text file, len is n+1 for the EOS 
   uint32_t *Text = malloc((n+1)*sizeof(*Text));
   if(Text==NULL) die("malloc failed (Text)");
   rewind(parse);
@@ -79,13 +89,103 @@ uint32_t *read_parse(char *basename,long *tsize)
     int e= asprintf(&msg,"read parse error: %zu vs %ld\n", s,n); 
     (void) e; die(msg);
   }
-  
   if(fclose(parse)!=0) die("parse file close");
   Text[n]=0; // sacak needs a 0 eos 
   *tsize= n;
   return Text;
 }  
 
+static void print_help(char *name)
+{
+  printf("Usage: %s <basename> [options]\n\n", name);
+  puts("Compute the BWT of basename.parse and store its inverted list occurrence");
+  puts("Permute the file basename.last according to the same permutation");
+  puts("  Options:");
+  puts("\t-h  \tshow help and exit");
+  puts("\t-s  \tpermute also sa info");
+  exit(1);
+}
+
+static void parseArgs(int argc, char** argv, Args *arg ) {
+  extern int optind, opterr, optopt;
+  extern char *optarg;  
+  int c;
+
+  puts("==== Command line:");
+  for(int i=0;i<argc;i++)
+    printf(" %s",argv[i]);
+  puts("");
+
+  arg->SAinfo = false;
+  while ((c = getopt( argc, argv, "sh") ) != -1) {
+    switch(c) {
+      case 's':
+      arg->SAinfo = true; break;
+      case 'h':
+         print_help(argv[0]); exit(1);
+      case '?':
+      puts("Unknown option. Use -h for help.");
+      exit(1);
+    }
+  }
+
+  arg->basename = NULL;
+  if (argc == optind+1) {
+    arg->basename = argv[optind];
+  }
+  if (argc>optind+1) {
+    puts("Commandline error: A single input parameter is allowed");
+    print_help(argv[0]);
+  }
+}
+
+static sa_index_t *compute_SA(uint32_t *Text, long n, long k) 
+{
+  sa_index_t *SA = malloc(n*sizeof(*SA));
+  if(SA==NULL) die("malloc failed  (SA)");
+  printf("Computing SA of size %ld over an alphabet of size %ld\n",n,k);
+  int depth = sacak_int(Text, SA, n, k);
+  if(depth>=0)
+    printf("SA computed with depth: %d\n", depth);
+  else
+    die("Error computing the SA"); 
+  return SA;
+}
+
+static uint8_t *load_last(Args *arg, long n)
+{  
+  // open .last file for reading and .bwlast for writing
+  FILE *lastin = open_aux_file(arg->basename,EXTLST,"rb");
+  // allocate and load the last array
+  uint8_t *last = malloc(n);
+  if(last==NULL) die("malloc failed (LAST)"); 
+  size_t s = fread(last,1,n,lastin);
+  if(s!=n) die("last read");
+  if(fclose(lastin)!=0) die("last file close");
+  return last;
+}
+
+  
+static uint8_t *load_sa_info(Args *arg, long n)
+{  
+  // maybe sa info was not required 
+  if(arg->SAinfo==false) return NULL;
+  // open .sa_info file for reading and .bwlast for writing
+  FILE *fin = open_aux_file(arg->basename,EXTSAI,"rb");
+  // allocate and load the last array
+  uint8_t *sai = malloc(n*IBYTES);
+  if(sai==NULL) die("malloc failed (SA INFO)"); 
+  size_t s = fread(sai,IBYTES,n,fin);
+  if(s!=n) die("last read");
+  if(fclose(fin)!=0) die("sa info file close");
+  return sai;
+}
+
+static FILE *open_sa_out(Args *arg)
+{
+  if(arg->SAinfo==false) return NULL;
+  return open_aux_file(arg->basename,EXTBWSAI,"wb"); 
+}
 
 
 int main(int argc, char *argv[])
@@ -93,71 +193,60 @@ int main(int argc, char *argv[])
   uint32_t *Text; // array of parsing symbols 
   long n;         // length of Text[] (not including final 0 symbol)
   size_t s;
+  Args arg;
 
+  // read arguments 
+  parseArgs(argc,argv,&arg);
+  // start measuring wall clcokc time 
   time_t start_wc = time(NULL);
-  // check input data
-  if(argc<2){
-    printf("Usage: %s basename\n\n", argv[0]);
-    puts("Compute the BWT of basename.parse and store its inverted list occurrence");
-    puts("Permutes the file basename.last according to the same permutation");
-    exit(1);
-  }
-  puts("==== Command line:");
-  for(int i=0;i<argc;i++)
-    printf(" %s",argv[i]);
-  puts("");
-
   // read parse file
-  Text = read_parse(argv[1],&n);
+  Text = read_parse(arg.basename,&n);
   
-  // open .last file for reading and .bwlast for writing
-  FILE *lastin = open_aux_file(argv[1],"last","rb");
-  FILE *lastout = open_aux_file(argv[1],"bwlast","wb");
-
-  // ------- compute alphabet size-1
-  uint32_t k=0;
+  // ------- compute largest input symbol (ie alphabet size-1)
+  long k=0;
   for(long i=0;i<n;i++) {
     if(Text[i]>k) k = Text[i];
   }
-  // if(k>=0x7FFFFFFE) die("Emergency exit! Alphabet larger than 2^31 (2)");
-  // -------- alloc and compute SA
-  sa_index_t *SA = malloc((n+1)*sizeof(*SA));
-  if(SA==NULL) die("malloc failed  (SA)");
-  printf("Computing SA of size %ld over an alphabet of size %u\n",n+1,k+1);
-  int depth = sacak_int(Text, SA, n+1, k+1);
-  if(depth>=0)
-    printf("SA computed with depth: %d\n", depth);
-  else
-    die("Error computing the SA"); 
-    
-  // allocate and load the last array
-  uint8_t *last = malloc(n);
-  if(last==NULL) die("malloc failed (LAST)"); 
-  s = fread(last,1,n,lastin);
-  if(s!=n) die("last read");
-  if(fclose(lastin)!=0) die("last file close");
-  
-  // transform SA->BWT inplace and write remapped last array
-  sa_index_t *BWTsa = SA;
+  // -------- alloc and compute SA of the parse
+  sa_index_t *SA = compute_SA(Text,n+1,k+1);
+
+  // load last file 
+  uint8_t *last = load_last(&arg,n);
+  // load sa info file, if requested
+  uint8_t *sa_info = load_sa_info(&arg,n); 
+  FILE *lastout = open_aux_file(arg.basename,EXTBWLST,"wb");   
+  FILE *sa_out = open_sa_out(&arg);
+
+  // transform SA->BWT inplace and write remapped last array, and possibly sainfo
+  sa_index_t *BWTsa = SA; // BWT overlapping SA
   assert(n>1);
+  // first BWT symbol
   assert(SA[0]==n);
   BWTsa[0] = Text[n-1];
   if(fputc(last[n-2],lastout)==EOF) die("bwlast output 1");
+  if(arg.SAinfo) get_and_write_myint(sa_info,n,n-1,sa_out); // ending position of BWT symbol in original text
+  // 2nd, 3rd etc BWT symbols 
   for(long i=1;i<=n;i++) {
     if(SA[i]==0) {
       assert(i==1);
       BWTsa[i] = 0;       // eof in BWT
       if(fputc(0,lastout)==EOF) die("bwlast output 2"); // dummy char 
+      if(arg.SAinfo) write_myint(0,sa_out); // dummy end of word position 
     }
     else {
       if(SA[i]==1) {if(fputc(last[n-1],lastout)==EOF) die("bwlast output 3");}
       else    {if(fputc(last[SA[i]-2],lastout)==EOF) die("bwlast output 4");}
+      if(arg.SAinfo) get_and_write_myint(sa_info,n,SA[i]-1,sa_out); // ending position of BWT symbol in original text
       BWTsa[i] = Text[SA[i]-1];
     }
   }
   if(fclose(lastout)!=0) die("bwlast close");
   printf("---- %ld bwlast chars written ----\n",n+1);
   free(last);
+  if(arg.SAinfo) {
+    if(fclose(sa_out)!=0) die("sa_out close");
+    free(sa_info);
+  } 
   
   // --- copy BWT to text array (symbol by symbol since sizeof could be different)
   uint32_t *BWT = Text;
@@ -167,7 +256,7 @@ int main(int argc, char *argv[])
   // read # of occ of each char from file .occ
   uint32_t *occ = malloc((k+1)*sizeof(*occ)); // extra space for the only occ of 0
   if(occ==NULL) die("malloc failed (OCC)");
-  FILE *occin = open_aux_file(argv[1],"occ","rb");
+  FILE *occin = open_aux_file(arg.basename,"occ","rb");
   s = fread(occ+1,sizeof(*occ), k,occin);
   if(s!=k) die("not enough occ data!");
   occ[0] = 1; // we know there is somewhere a 0 BWT entry 
@@ -193,7 +282,7 @@ int main(int argc, char *argv[])
   for(long i=0;i<=k;i++) 
     assert(occ[i]==0);
   // ---save Ilist   
-  FILE *ilist = open_aux_file(argv[1],"ilist","wb");
+  FILE *ilist = open_aux_file(arg.basename,EXTILIST,"wb");
   s = fwrite(IList,sizeof(*IList),n+1,ilist);
   if(s!=n+1) die("Ilist write");
   fclose(ilist);

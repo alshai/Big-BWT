@@ -106,12 +106,12 @@ typedef uint32_t occ_int_t;
 // struct containing command line parameters and other globals
 struct Args {
    string inputFileName = "";
-   string parse0ext = ".parse_old"; // extension tmp parse file 
-   string parseExt =  ".parse";     // extension final parse file  
-   string occExt =    ".occ";       // extension occurrences file  
-   string dictExt =   ".dict";      // extension dictionary file  
-   string lastExt =   ".last";      // extension file containing last chars   
-   string saExt =   ".parse_sa";    // extension file containing sa info   
+   string parse0ext = EXTPARS0;    // extension tmp parse file 
+   string parseExt =  EXTPARSE;    // extension final parse file  
+   string occExt =    EXTOCC;      // extension occurrences file  
+   string dictExt =   EXTDICT;     // extension dictionary file  
+   string lastExt =   EXTLST;      // extension file containing last chars   
+   string saExt =     EXTSAI;      // extension file containing sa info   
    int w = 10;            // sliding window size and its default 
    int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;
@@ -234,7 +234,7 @@ void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>& 
   // compute ending position +1 of current word and write it to sa file 
   if(pos==0) pos = w.size()-1;
   else pos += w.size() -minsize; 
-  if(sa) if(fwrite(&pos,BBYTES,1,sa)!=1) die("Error writing to sa info file");
+  if(sa) if(fwrite(&pos,IBYTES,1,sa)!=1) die("Error writing to sa info file");
   // keep only the overlapping part of the window
   w.erase(0,w.size() - minsize);
 }
@@ -256,21 +256,21 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
     throw new std::runtime_error("Cannot open input file " + string(fnam));
   }
 
-  // open the output parsing file 
-  string fparse = arg.inputFileName + arg.parse0ext;
-  cout << "Writing tmp parsing to file " << fparse << endl;
+  // open the 1st pass parsing file 
+  string fparse = arg.inputFileName + "." + arg.parse0ext;
+  // cout << "Writing tmp parsing to file " << fparse << endl;
   FILE *g = fopen(fparse.c_str(),"wb");
   if(g==NULL) die("Cannot open " + fparse);
 
   // open output file containing the char at position -(w+1) of each word
-  string fnamelast = arg.inputFileName + arg.lastExt;
+  string fnamelast = arg.inputFileName + "." + arg.lastExt;
   FILE *last_file = fopen(fnamelast.c_str(),"wb");
   if(last_file==NULL) die("Cannot open " + fnamelast); 
   
   // if requested open file containing the starting position of each word
   FILE *sa_file = NULL; string sa_name = "<not used>";
   if(arg.SAinfo) {
-    sa_name = arg.inputFileName + arg.saExt;
+    sa_name = arg.inputFileName + "." + arg.saExt;
     sa_file = fopen(sa_name.c_str(),"wb");
     if(sa_file==NULL) die("Cannot open " + sa_name);
   } 
@@ -278,6 +278,7 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
   // main loop on the chars of the input file
   int c;
   uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
+  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are writte to the sa info file 
   // init first word in the parsing with a NUL char 
   string word("");
   word.append(1,Dollar);
@@ -370,10 +371,10 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
 {
   assert(sortedDict.size() == wfreq.size());
   // open dictionary and occ files 
-  string fdictname = arg.inputFileName + arg.dictExt;
+  string fdictname = arg.inputFileName + "." + arg.dictExt;
   FILE *fdict = fopen(fdictname.c_str(),"wb");
   if(fdict==NULL) die("Cannot open " + fdictname);
-  string foccname = arg.inputFileName + arg.occExt;
+  string foccname = arg.inputFileName + "." + arg.occExt;
   FILE *focc = fopen(foccname.c_str(),"wb");
   if(focc==NULL) die("Cannot open " + foccname);
   
@@ -398,8 +399,8 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
 void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
 {
   // build file names
-  string old_parse = arg.inputFileName + arg.parse0ext;
-  string new_parse = arg.inputFileName + arg.parseExt;
+  string old_parse = arg.inputFileName + "." + arg.parse0ext;
+  string new_parse = arg.inputFileName + "." + arg.parseExt;
   // recompute to double check occ
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
   // open parse files 
@@ -498,9 +499,9 @@ int main(int argc, char** argv)
   cout << "Windows size: " << arg.w << endl;
   cout << "Stop word modulus: " << arg.p << endl;  
 
+  // measure elapsed wall clock time
   time_t start_main = time(NULL);
-  time_t start_wc = start_main;
-  
+  time_t start_wc = start_main;  
   // init window-based karp-rabin fingerprint
   KR_window krw(arg.w); // input is window size and alphabet 
   // init sorted map counting the number of occurrences of each word
