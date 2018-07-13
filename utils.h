@@ -18,6 +18,7 @@
 #define EXTSAI   "sai"
 #define EXTBWSAI "bwsai"
 #define EXTILIST "ilist"
+#define EXTSA    "sa"
 
 
 void die(const char *s);

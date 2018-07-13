@@ -33,12 +33,31 @@ extern "C" {
 using namespace std;
 using namespace __gnu_cxx;
 
+// -------------------------------------------------------------
+// struct containing command line parameters and other globals
+struct Args {
+   char *basename;
+   string parseExt =  EXTPARSE;    // extension final parse file  
+   string occExt =    EXTOCC;      // extension occurrences file  
+   string dictExt =   EXTDICT;     // extension dictionary file  
+   string lastExt =   EXTLST;      // extension file containing last chars   
+   string saExt =     EXTSAI;      // extension file containing sa info   
+   int w = 10;            // sliding window size and its default 
+   int th = 0;            // number of helper threads, default none 
+   bool SA = false;
+};
+
+
+
 static long get_num_words(uint8_t *d, long n);
 static long binsearch(uint_t x, uint_t a[], long n);
 static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
 static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
-
+static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
+                                     int suffixLen, FILE *safile, uint8_t *bwsainfo);
+static uint8_t *load_bwsa_info(Args &arg, long n);
+static FILE *open_safile(Args &arg);
 
 // class representing the suffix of a dictionary word
 // instances of this class are stored to a heap to handle the hard bwts
@@ -70,6 +89,8 @@ bool SeqId::operator<(const SeqId& a) {
 #include "pfthreads.hpp"
 #endif
 
+
+
 /* *******************************************************************
  * Computation of the final BWT
  * 
@@ -77,16 +98,19 @@ bool SeqId::operator<(const SeqId& a) {
  * (considered in lexicographic order) for k=istart[i]...istart[i+1]-1
  * ilist[k] contains the ordered positions in BWT(P) containing word i 
  * ******************************************************************* */
-void bwt(uint8_t *d, long dsize, // dictionary and its size  
+void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
-         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
-         int w, char *name)             // window size and base name for output file
+         uint32_t *istart, long dwords) // starting point in ilist for each word and # words
 {  
   (void) psize; // used only in assertions
+ 
+  // possibly read bwsa info file and open sa output file
+  uint8_t *bwsainfo = load_bwsa_info(arg,psize);
+  FILE *safile = open_safile(arg);
   
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp; 
-  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
+  compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
   // set d[0] ==0 as this is the EOF char in the final BWT
   assert(d[0]==Dollar);
   d[0]=0;
@@ -97,7 +121,7 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
     assert(eos[i]<eos[i+1]);
 
   // open output file 
-  FILE *fbwt = open_aux_file(name,"bwt","wb");
+  FILE *fbwt = open_aux_file(arg.basename,"bwt","wb");
     
   // main loop: consider each entry in the SA of dict
   time_t start = time(NULL);
@@ -106,18 +130,26 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   long hard_bwts = 0;
   long next;
   uint32_t seqid;
-  for(long i=dwords+w+1; i< dsize; i=next ) {
+  for(long i=dwords+arg.w+1; i< dsize; i=next ) {
     // we are considering d[sa[i]....]
     next = i+1;  // prepare for next iteration  
     // compute length of this suffix and sequence it belongs
     int_t suffixLen = getlen(sa[i],eos,dwords,&seqid);
     // ignore suffixes of lenght <= w
-    if(suffixLen<=w) continue;
+    if(suffixLen<=arg.w) continue;
     // ----- simple case: the suffix is a full word 
     if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
       full_words++;
-      for(long j=istart[seqid];j<istart[seqid+1];j++)
+      for(long j=istart[seqid];j<istart[seqid+1];j++) {
         if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
+        if(arg.SA && seqid>0) {
+          if(seqid>0) {
+            uint64_t sa = bwsainfo[ilist[j]] - suffixLen;
+            if(fwrite(&sa,8,1,safile)!=1) die("SA write error");
+          }
+          else assert(ilist[j]==1);
+        }
+      } 
       continue; // proceed with next i 
     }
     // ----- hard case: there can be a group of equal suffixes starting at i
@@ -136,8 +168,11 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
       }
       else break;
     }
-    // output to fbwt the protion of the bwt corresponding to the current dictionary suffix
-    fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+    // output to fbwt the position of the bwt corresponding to the current dictionary suffix
+    if(arg.SA==false)
+      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+    else  
+      fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo);
   } 
   assert(full_words==dwords);
   cout << "Full words: " << full_words << endl;
@@ -147,45 +182,88 @@ void bwt(uint8_t *d, long dsize, // dictionary and its size
   fclose(fbwt);
   delete[] lcp;
   delete[] sa;
+  if(arg.SA) { fclose(safile); free(bwsainfo); }
 }  
 
-int main(int argc, char** argv)
-{
-  time_t start = time(NULL);  
-  // check command line
-  #ifdef NOTHREADS
-  if(argc!=3) {
-    cerr << "Usage:\n\t";
-    cerr << argv[0] << " wsize file\n" << endl;
-    exit(1);
-  }
-  #else 
-  if(argc!=3 && argc!=4) {
-    cerr << "Usage:\n\t";
-    cerr << argv[0] << " wsize file [num_threads]\n" << endl;
-    exit(1);
-  }
-  #endif
+void print_help(char** argv, Args &args) {
+  cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
+  cout << "  Options: " << endl
+        << "\t-w W\tsliding window size, def. " << args.w << endl
+        << "\t-t M\tnumber of helper thread, def. none " << endl
+        << "\t-h  \tshow help and exit" << endl
+        << "\t-s  \tcompute suffix array" << endl;
+  exit(1);
+}
+
+void parseArgs( int argc, char** argv, Args& arg ) {
+   int c;
+   extern char *optarg;
+   extern int optind;
+
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
   puts("");
 
-  // translate command line parameters
-  int w = atoi(argv[1]);             // sliding window size   
-  int num_threads=0;                 // number of helper threads
-  if(argc==4) num_threads = atoi(argv[3]);
-  if(num_threads<0) {
-    cerr << "Number of helper threads cannot be negative!\n";
-    exit(1);
-  }
+   string sarg;
+   while ((c = getopt( argc, argv, "t:w:sh") ) != -1) {
+      switch(c) {
+        case 's':
+        arg.SA = true; break;
+        case 'w':
+        sarg.assign( optarg );
+        arg.w = stoi( sarg ); break;
+        case 't':
+        sarg.assign( optarg );
+        arg.th = stoi( sarg ); break;
+        case 'h':
+           print_help(argv, arg); exit(1);
+        case '?':
+        cout << "Unknown option. Use -h for help." << endl;
+        exit(1);
+      }
+   }
+   // the only input parameter is the file name
+   arg.basename = NULL; 
+   if (argc == optind+1) {
+     arg.basename = argv[optind];
+   }
+   else {
+      cout << "Invalid number of arguments" << endl;
+      print_help(argv,arg);
+   }
+   // check algorithm parameters 
+   if(arg.w <4) {
+     cout << "Windows size must be at least 4\n";
+     exit(1);
+   }
+   #ifdef NOTHREADS
+   if(arg.th!=0) {
+     cout << "The NT version do not use threads\n";
+     exit(1);
+   }
+   #else
+   if(arg.th<0) {
+     cout << "Number of threads cannot be negative\n";
+     exit(1);
+   }
+   #endif
+}
 
+
+int main(int argc, char** argv)
+{
+  time_t start = time(NULL);  
+
+  // translate command line parameters
+  Args arg;
+  parseArgs(argc, argv, arg);
   // read dictionary file 
-  FILE *g = open_aux_file(argv[2],"dict","rb");
+  FILE *g = open_aux_file(arg.basename,EXTDICT,"rb");
   fseek(g,0,SEEK_END);
   long dsize = ftell(g);
-  if(dsize<0) die("ftell");
-  if(dsize<=1+w) die("invalid dictionary file");
+  if(dsize<0) die("ftell dictionary");
+  if(dsize<=1+arg.w) die("invalid dictionary file");
   cout  << "Dictionary file size: " << dsize << endl;
   #if !M64
   if(dsize > 0x7FFFFFFE) {
@@ -202,10 +280,10 @@ int main(int argc, char** argv)
   fclose(g);
   
   // read occ file
-  g = open_aux_file(argv[2],"occ","rb");
+  g = open_aux_file(arg.basename,EXTOCC,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
-  if(e<0) die("ftell 2");
+  if(e<0) die("ftell occ file");
   if(e%4!=0) die("invalid occ file");
   int dwords = e/4;
   cout  << "Dictionary words: " << dwords << endl;
@@ -217,10 +295,10 @@ int main(int argc, char** argv)
   assert(dwords==get_num_words(d,dsize));
 
   // read ilist file 
-  g = open_aux_file(argv[2],"ilist","rb");
+  g = open_aux_file(arg.basename,EXTILIST,"rb");
   fseek(g,0,SEEK_END);
   e = ftell(g);
-  if(e<0) die("ftell 3");
+  if(e<0) die("ftell ilist file");
   if(e%4!=0) die("invalid ilist file");
   long psize = e/4;
   cout  << "Parsing size: " << psize << endl;
@@ -233,13 +311,13 @@ int main(int argc, char** argv)
   assert(ilist[0]==1); // EOF is in PBWT[1] 
 
   // read bwlast file 
-  g = open_aux_file(argv[2],"bwlast","rb");  
+  g = open_aux_file(arg.basename,EXTBWLST,"rb");  
   cout  << "bwlast file size: " << psize << endl;
   uint8_t *bwlast = new uint8_t[psize];  
   e = fread(bwlast,1,psize,g);
   if(e!=psize) die("fread 4");
   fclose(g);
-
+  
   // convert occ entries into starting positions inside ilist
   // ilist also contains the position of EOF but we don't care about it since it is not in dict 
   uint32_t last=1; // starting position in ilist of the smallest dictionary word  
@@ -254,15 +332,15 @@ int main(int argc, char** argv)
   assert(occ[1]==occ[0]+1);
   
   // compute and write the final bwt 
-  if(num_threads==0)
-    bwt(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2]); // version not using threads
-  else {   
+  if(arg.th==0)
+    bwt(arg,d,dsize,ilist,bwlast,psize,occ,dwords); // version not using threads
+  else {
     #ifdef NOTHREADS
-    cerr << "Sorry, this is the no-threads executable and you requested " << num_threads << " threads\n";
+    cerr << "Sorry, this is the no-threads executable and you requested " << arg.th << " threads\n";
     exit(EXIT_FAILURE);
     #else
     // multithread version
-    bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,w,argv[2],num_threads);
+    bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,arg.w,arg.basename,arg.th);
     #endif
   }
   delete[] bwlast;
@@ -275,6 +353,26 @@ int main(int argc, char** argv)
 
 // --------------------- aux functions ----------------------------------
 
+static FILE *open_safile(Args &arg)
+{
+  if(arg.SA==false) return NULL;
+  return open_aux_file(arg.basename,EXTSA,"wb"); 
+}
+
+static uint8_t *load_bwsa_info(Args &arg, long n)
+{  
+  // maybe sa info was not required 
+  if(arg.SA==false) return NULL;
+  // open .bwsa file for reading and .bwlast for writing
+  FILE *fin = open_aux_file(arg.basename,EXTBWSAI,"rb");
+  // allocate and load the bwsa array
+  uint8_t *sai = (uint8_t *) malloc(n*IBYTES);
+  if(sai==NULL) die("malloc failed (BWSA INFO)"); 
+  long s = fread(sai,IBYTES,n,fin);
+  if(s!=n) die("bwsa info read");
+  if(fclose(fin)!=0) die("bwsa info file close");
+  return sai;
+}
 
 // compute the number of words in a dictionary
 static long get_num_words(uint8_t *d, long n)
@@ -380,6 +478,49 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
       // output char for the top of the heap
       SeqId s = heap.front();
       if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
+
+// write to the bwt all the characters preceding a given suffix
+// and the corresponding SA entries doing a merge operation
+static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts,
+                                    int suffixLen, FILE *safile, uint8_t *bwsainfo)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  if(numwords==1) {
+    uint32_t s = id2merge[0];
+    for(long j=istart[s];j<istart[s+1];j++) {
+      if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      uint64_t sa = bwsainfo[ilist[j]] - suffixLen;
+      if(fwrite(&sa,8,1,safile)!=1) die("SA write error 1");
+    }
+    easy_bwts +=  istart[s+1]- istart[s];
+  }
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      uint64_t sa = bwsainfo[*(s.bwtpos)] - suffixLen;
+      if(fwrite(&sa,8,1,safile)!=1) die("SA write error 1");      
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());

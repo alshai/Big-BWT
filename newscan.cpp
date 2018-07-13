@@ -432,7 +432,7 @@ void print_help(char** argv, Args &args) {
   cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
-        << "\t-p M\tmodulo for defining phrases def. " << args.p << endl
+        << "\t-p M\tmodulo for defining phrases, def. " << args.p << endl
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute suffix array info" << endl;
   #ifdef GZSTREAM
@@ -444,6 +444,12 @@ void print_help(char** argv, Args &args) {
 void parseArgs( int argc, char** argv, Args& arg ) {
    int c;
    extern char *optarg;
+   extern int optind;
+
+  puts("==== Command line:");
+  for(int i=0;i<argc;i++)
+    printf(" %s",argv[i]);
+  puts("");
 
    string sarg;
    while ((c = getopt( argc, argv, "p:w:sh") ) != -1) {
@@ -463,15 +469,14 @@ void parseArgs( int argc, char** argv, Args& arg ) {
         exit(1);
       }
    }
-   if (argc == optind) {
-      cout << "No input filename given" << endl;
+   // the only input parameter is the file name 
+   if (argc == optind+1) {
+     arg.inputFileName.assign( argv[optind] );
+   }
+   else {
+      cout << "Invalid number of arguments" << endl;
       print_help(argv,arg);
    }
-   if (argc>optind+1) {
-      cout << "Too many input parameters" << endl;
-      print_help(argv,arg);
-   }
-   arg.inputFileName.assign( argv[optind] );
    // check algorithm parameters 
    if(arg.w <4) {
      cout << "Windows size must be at least 4\n";
@@ -488,11 +493,6 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 int main(int argc, char** argv)
 {
   
-  puts("==== Command line:");
-  for(int i=0;i<argc;i++)
-    printf(" %s",argv[i]);
-  puts("");
-
   // translate command line parameters
   Args arg;
   parseArgs(argc, argv, arg);

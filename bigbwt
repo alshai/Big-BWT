@@ -77,14 +77,14 @@ def main():
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
       # 64 bit version with and without threads
       if args.t>0:
-        command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
+        command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
       else:
-        command = "{exe} {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
+        command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
     else:  # 32 bit version
       if args.t>0:
-        command = "{exe} {wsize} {file} {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
+        command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
-        command = "{exe} {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
+        command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
 
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):

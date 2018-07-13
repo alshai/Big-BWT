@@ -12,7 +12,26 @@
 // Remap the chars in the .last file according to the
 // BWT/SA permutation producing the .bwlast file 
 
-// From the BWT compute and output the .ilist file giving 
+// If the -s option is used, also remap the sa values in the .sai 
+// file (that uses IBYTES bytes per entry) producing the .bwsai file
+
+// The remapping is as follows, let T[0] T[1] ... T[n-1] T[n]
+// the input parse with T[n]=0 is an extra EOS symbol added here   
+// For j=0,...,n, if BWT[j] = T[i] then:
+//   bwisa[j]  is the ending position+1 of T[i] in the original text 
+//   bwlast[j] is the char immediately before T[i] in the original text,
+//             ie the char in position w from the end of T[i-1]
+// Since T[n]=0, and T[0] = $abc... is the only phrase starting with $ so T[n]<T[0]<T[i]
+// it is BWT[0]=T[n-1] and BWT[1]=T[n]=0. We have 
+//   bwisa[0]  = ending position + 1 of T[n-1], 
+//   bwlast[0] = char in position w from the end of T[n-2]
+//   bwisa[1] and bwlast[1] are dummy values since T[n] is not a real phrase
+// For some j it is BWT[j]=T[0], for that j we set
+//   bwisa[j] = ending position + 1 of T[0] as expected
+//   bwlast[j] = char in position w from the end in T[n-1] (it should formally be
+//               T[n] but again that is dummy symbol and we skip it)
+
+// From the BWT we compute and output the .ilist file giving 
 // for each parsing symbol (considered in alphabetical order)
 // the list of BWT positions where that symbol occurs.
 // Among the symbols the EOF symbol is included so the 
@@ -172,11 +191,11 @@ static uint8_t *load_sa_info(Args *arg, long n)
   if(arg->SAinfo==false) return NULL;
   // open .sa_info file for reading and .bwlast for writing
   FILE *fin = open_aux_file(arg->basename,EXTSAI,"rb");
-  // allocate and load the last array
+  // allocate and load the sa info array
   uint8_t *sai = malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (SA INFO)"); 
   size_t s = fread(sai,IBYTES,n,fin);
-  if(s!=n) die("last read");
+  if(s!=n) die("sa info read");
   if(fclose(fin)!=0) die("sa info file close");
   return sai;
 }
@@ -229,12 +248,15 @@ int main(int argc, char *argv[])
   for(long i=1;i<=n;i++) {
     if(SA[i]==0) {
       assert(i==1);
-      BWTsa[i] = 0;       // eof in BWT
+      BWTsa[i] = 0;   // eos in BWT, there is no phrase in D corresponding to this symbol so we write dummy values
       if(fputc(0,lastout)==EOF) die("bwlast output 2"); // dummy char 
       if(arg.SAinfo) write_myint(0,sa_out); // dummy end of word position 
     }
     else {
-      if(SA[i]==1) {if(fputc(last[n-1],lastout)==EOF) die("bwlast output 3");}
+      if(SA[i]==1) {
+        // BWT[i] = Text[0] = $abcd... = first word in the parsing where $ now plays the role of the EOS in the original text  
+        if(fputc(last[n-1],lastout)==EOF) die("bwlast output 3");
+      }
       else    {if(fputc(last[SA[i]-2],lastout)==EOF) die("bwlast output 4");}
       if(arg.SAinfo) get_and_write_myint(sa_info,n,SA[i]-1,sa_out); // ending position of BWT symbol in original text
       BWTsa[i] = Text[SA[i]-1];
