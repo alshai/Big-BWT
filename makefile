@@ -51,6 +51,8 @@ pfbwtNT.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
 pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS -DM64
 
+%.o: %.c %.h
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
 		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] xerrors.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]

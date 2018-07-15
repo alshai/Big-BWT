@@ -85,7 +85,8 @@ def main():
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
-
+    if args.s: command += " -s"
+    
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -96,14 +97,20 @@ def main():
     if args.sum:
       digest = file_digest(args.input +".bwt",logfile)
       print("BWT {exe}: {digest}".format(exe=shasum_exe, digest=digest))
-
-
+      if args.s:
+        digest = file_digest(args.input +".sa",logfile)
+        print("SA  {exe}: {digest}".format(exe=shasum_exe, digest=digest))
+ 
     # ---- delete intermediate files
     if args.k==False:
-      command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
       print("==== Deleting temporary files.") # no need to show the command
+      command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
       if(execute_command(command,logfile,logfile_name)!=True):
-        return   
+        return
+      if args.s:
+        command = "rm {file}.sai {file}.bwsai".format(file=args.input);
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
 
     # --- start checking ---
     if args.c:
