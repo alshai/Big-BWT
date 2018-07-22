@@ -85,7 +85,7 @@ def main():
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
-    if args.s: command += " -s"
+    if args.s: command += " -S"
     
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):

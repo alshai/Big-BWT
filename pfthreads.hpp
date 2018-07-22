@@ -310,26 +310,29 @@ static void *merge_body(void *v)
 
 
 // bwt construction from dictionary and parse using multiple threads
-void bwt_multi(uint8_t *d, long dsize, // dictionary and its size  
+void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size  
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
-         uint32_t *istart, long dwords, // starting point in ilist for each word and # words
-         int w, char *name, int numt)   // window size and base name for output file
+         uint32_t *istart, long dwords) // starting point in ilist for each word and # words
 {  
   (void) psize; // used only in assertions
-  assert(numt>0); 
+  assert(arg.th>0); 
+  if(arg.SA || arg.sampledSA) {
+    cout << "Mutithread version doesn't support computation of SA values yet\n";
+    exit(1);
+  }
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp; 
-  compute_dict_bwt_lcp(d,dsize,dwords,w,&sa,&lcp);
+  compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
   // set d[0] ==0 as this is the EOF char in the final BWT
   assert(d[0]==Dollar);
   d[0]=0;
 
   // convert sa,lcp->da,suflen + bit
-  sa2da(sa,lcp,d,dsize,dwords,w,numt);
-  uint_t *da = sa + (dwords+w+1);
+  sa2da(sa,lcp,d,dsize,dwords,arg.w,arg.th);
+  uint_t *da = sa + (dwords+arg.w+1);
   uint_t *eos = sa+1;
-  long dasize= dsize - (dwords+w+1);
-  int_t *suflen = lcp + (dwords+w+1);
+  long dasize= dsize - (dwords+arg.w+1);
+  int_t *suflen = lcp + (dwords+arg.w+1);
   int_t *wlen = lcp+1;
   lcp = NULL; sa = NULL; // make sure these are not used
 
@@ -337,16 +340,16 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
   thread_data td;
   td.dict = d; td.dsize = dsize; td.dwords = dwords;
   td.suflen = suflen; td.wlen = wlen;
-  td.da = da; td.eos = eos; td.w = w;
+  td.da = da; td.eos = eos; td.w = arg.w;
   td.last = last; td.ilist = ilist; td.istart=istart;
   td.full_words = td.easy_bwts = td.hard_bwts = 0;
   td.cindex=0;
   pc_init(&td.free_slots,&td.data_items,&td.cons_m); 
-  td.bwt_fd = get_bwt_fd(name); // file descriptor of output bwt file
+  td.bwt_fd = get_bwt_fd(arg.basename); // file descriptor of output bwt file
 
   // start consumer threads
-  pthread_t t[numt];
-  for(int i=0;i<numt;i++)
+  pthread_t t[arg.th];
+  for(int i=0;i<arg.th;i++)
     xpthread_create(&t[i],NULL,merge_body,&td,__LINE__,__FILE__);
 
   // main loop: consider each entry in the DA[] of dict
@@ -367,7 +370,7 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
     }
     next = i+1;  // prepare for next iteration  
     // discard if it is a small suffix 
-    if(suflen[i]<=w) continue;
+    if(suflen[i]<=arg.w) continue;
     uint32_t seqid = da[i]&0x7FFFFFFF;
     assert(seqid<dwords);
     entries += istart[seqid+1]-istart[seqid];
@@ -395,19 +398,19 @@ void bwt_multi(uint8_t *d, long dsize, // dictionary and its size
   xsem_post(&td.data_items,__LINE__,__FILE__);
   // terminate and join threads 
   r.start = -1; 
-  for(int i=0;i<numt;i++) {
+  for(int i=0;i<arg.th;i++) {
     xsem_wait(&td.free_slots,__LINE__,__FILE__);
     td.buffer[pindex++ % Buf_size] = r;
     xsem_post(&td.data_items,__LINE__,__FILE__);
   }
-  for(int i=0;i<numt;i++)
+  for(int i=0;i<arg.th;i++)
     xpthread_join(t[i],NULL,__LINE__,__FILE__);
 
   assert(td.full_words==dwords);  
   cout << "Full words: " << td.full_words << endl;
   cout << "Easy bwt chars: " << td.easy_bwts << endl;
   cout << "Hard bwt chars: " << td.hard_bwts << endl;
-  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds (" << numt <<" threads, range "<< Min_bwt_range<<")\n";    
+  cout << "Generating the final BWT took " << difftime(time(NULL),start) << " wall clock seconds (" << arg.th <<" threads, range "<< Min_bwt_range<<")\n";    
   pc_destroy(&td.free_slots,&td.data_items,&td.cons_m);
   close(td.bwt_fd); // close bwt file
   delete[] lcp;

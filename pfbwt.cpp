@@ -44,7 +44,8 @@ struct Args {
    string saExt =     EXTSAI;      // extension file containing sa info   
    int w = 10;            // sliding window size and its default 
    int th = 0;            // number of helper threads, default none 
-   bool SA = false;
+   bool SA = false;       // output all SA values
+   bool sampledSA = false;// output sampled SA values
 };
 
 
@@ -56,6 +57,8 @@ static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint
 static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                      int suffixLen, FILE *safile, uint8_t *bwsainfo,long);
+static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
+                                     int suffixLen, FILE *safile, uint8_t *bwsainfo,long, int &);
 static uint8_t *load_bwsa_info(Args &arg, long n);
 static FILE *open_safile(Args &arg);
 
@@ -102,8 +105,6 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
          uint32_t *ilist, uint8_t *last, long psize, // ilist, last and their size 
          uint32_t *istart, long dwords) // starting point in ilist for each word and # words
 {  
-  (void) psize; // used only in assertions
- 
   // possibly read bwsa info file and open sa output file
   uint8_t *bwsainfo = load_bwsa_info(arg,psize);
   FILE *safile = open_safile(arg);
@@ -130,6 +131,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   long hard_bwts = 0;
   long next;
   uint32_t seqid;
+  int lastbwt = Dollar;  // this is certainly not a BWT char
   for(long i=dwords+arg.w+1; i< dsize; i=next ) {
     // we are considering d[sa[i]....]
     next = i+1;  // prepare for next iteration  
@@ -141,15 +143,24 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
     if(sa[i]==0 || d[sa[i]-1]==EndOfWord) {
       full_words++;
       for(long j=istart[seqid];j<istart[seqid+1];j++) {
-        if(fputc(last[ilist[j]],fbwt)==EOF) die("BWT write error");
-        if(arg.SA && seqid>0) {
-          if(seqid>0) {
+        int nextbwt = last[ilist[j]]; // compute next bwt char
+        if(arg.SA) { // complete Sa requested 
+          if(seqid>0) { // if not the first word in the parse output SA values
             uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
-            if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error");
+            if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 0");
           }
-          else assert(ilist[j]==1);
+          else assert(j==1); // the first word in the parse is the 2nd lex smaller
         }
-      } 
+        else if(arg.sampledSA) { // sampled SA 
+          if(nextbwt!=lastbwt) {
+            uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
+            if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 0");            
+          }
+        }
+        // in any case output BWT char 
+        if(fputc(nextbwt,fbwt)==EOF) die("BWT write error 0");
+        lastbwt = nextbwt;   // update lastbwt 
+      }
       continue; // proceed with next i 
     }
     // ----- hard case: there can be a group of equal suffixes starting at i
@@ -169,11 +180,13 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
       else break;
     }
     // output to fbwt the position of the bwt corresponding to the current dictionary suffix
-    if(arg.SA==false)
-      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
-    else  
+    if(arg.SA)
       fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize);
-  } 
+    else if(arg.sampledSA)
+      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize,lastbwt);
+    else 
+      fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+  }
   assert(full_words==dwords);
   cout << "Full words: " << full_words << endl;
   cout << "Easy bwt chars: " << easy_bwts << endl;
@@ -196,9 +209,9 @@ void print_help(char** argv, Args &args) {
 }
 
 void parseArgs( int argc, char** argv, Args& arg ) {
-   int c;
-   extern char *optarg;
-   extern int optind;
+  int c;
+  extern char *optarg;
+  extern int optind;
 
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
@@ -206,9 +219,11 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "t:w:sh") ) != -1) {
+   while ((c = getopt( argc, argv, "t:w:shS") ) != -1) {
       switch(c) {
         case 's':
+        arg.sampledSA = true; break;
+        case 'S':
         arg.SA = true; break;
         case 'w':
         sarg.assign( optarg );
@@ -225,14 +240,17 @@ void parseArgs( int argc, char** argv, Args& arg ) {
    }
    // the only input parameter is the file name
    arg.basename = NULL; 
-   if (argc == optind+1) {
+   if (argc == optind+1) 
      arg.basename = argv[optind];
-   }
    else {
       cout << "Invalid number of arguments" << endl;
       print_help(argv,arg);
    }
-   // check algorithm parameters 
+   // check algorithm parameters
+   if(arg.SA && arg.sampledSA) {
+     cout << "You can either require the sampled SA or the full SA, not both";
+     exit(1);
+   } 
    if(arg.w <4) {
      cout << "Windows size must be at least 4\n";
      exit(1);
@@ -340,7 +358,7 @@ int main(int argc, char** argv)
     exit(EXIT_FAILURE);
     #else
     // multithread version
-    bwt_multi(d,dsize,ilist,bwlast,psize,occ,dwords,arg.w,arg.basename,arg.th);
+    bwt_multi(arg,d,dsize,ilist,bwlast,psize,occ,dwords);
     #endif
   }
   delete[] bwlast;
@@ -455,7 +473,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts)
 {
-  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   bool samechar=true;
   for(size_t i=1;(i<numwords)&&samechar;i++)
     samechar = (char2write[i-1]==char2write[i]); 
@@ -498,7 +516,50 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                     int suffixLen, FILE *safile, uint8_t *bwsainfo, long n)
 {
-  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
+  if(numwords==1) {
+    uint32_t s = id2merge[0];
+    for(long j=istart[s];j<istart[s+1];j++) {
+      if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
+      uint64_t sa = get_myint(bwsainfo,n,ilist[j]) - suffixLen;
+      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 1");
+    }
+    easy_bwts +=  istart[s+1]- istart[s];
+  }
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
+      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 1");      
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
+
+// write to the bwt all the characters preceding a given suffix
+// and the corresponding SA entries doing a merge operation
+static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    FILE *fbwt, long &easy_bwts, long &hard_bwts,
+                                    int suffixLen, FILE *safile, uint8_t *bwsainfo, long n, int &bwtlast)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
     uint32_t s = id2merge[0];
     for(long j=istart[s];j<istart[s+1];j++) {
