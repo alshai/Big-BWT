@@ -200,7 +200,7 @@ static void write_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t>
                                     uint32_t *ilist, uint32_t *istart,
                                     uint8_t *bwt, long &c, long &easy_bwts, long &hard_bwts)
 {
-  size_t numwords = id2merge.size(); // numwords dictionary words contains the same suffix
+  size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   bool samechar=true;
   for(size_t i=1;(i<numwords)&&samechar;i++)
     samechar = (char2write[i-1]==char2write[i]); 

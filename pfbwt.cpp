@@ -144,7 +144,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
       full_words++;
       for(long j=istart[seqid];j<istart[seqid+1];j++) {
         int nextbwt = last[ilist[j]]; // compute next bwt char
-        if(arg.SA) { // complete Sa requested 
+        if(arg.SA) { // complete SA requested 
           if(seqid>0) { // if not the first word in the parse output SA values
             uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
             if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 0");
@@ -179,7 +179,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
       }
       else break;
     }
-    // output to fbwt the position of the bwt corresponding to the current dictionary suffix
+    // output to fbwt the bwt chars corresponding to the current dictionary suffix, and, if requested, some SA values 
     if(arg.SA)
       fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize);
     else if(arg.sampledSA)
@@ -202,9 +202,10 @@ void print_help(char** argv, Args &args) {
   cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
-        << "\t-t M\tnumber of helper thread, def. none " << endl
+        << "\t-t M\tnumber of helper threads, def. none " << endl
         << "\t-h  \tshow help and exit" << endl
-        << "\t-s  \tcompute suffix array" << endl;
+        << "\t-s  \tcompute sampled suffix array" << endl
+        << "\t-S  \tcompute full suffix array" << endl;
   exit(1);
 }
 
@@ -373,14 +374,15 @@ int main(int argc, char** argv)
 
 static FILE *open_safile(Args &arg)
 {
-  if(arg.SA==false) return NULL;
-  return open_aux_file(arg.basename,EXTSA,"wb"); 
+  if (arg.SA) return open_aux_file(arg.basename,EXTSA,"wb");
+  else if (arg.sampledSA) return open_aux_file(arg.basename,EXTSSA,"wb");
+  return NULL;
 }
 
 static uint8_t *load_bwsa_info(Args &arg, long n)
 {  
   // maybe sa info was not required 
-  if(arg.SA==false) return NULL;
+  if(arg.SA==false and arg.sampledSA==false) return NULL;
   // open .bwsa file for reading and .bwlast for writing
   FILE *fin = open_aux_file(arg.basename,EXTBWSAI,"rb");
   // allocate and load the bwsa array
@@ -495,7 +497,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
     while(heap.size()>0) {
       // output char for the top of the heap
       SeqId s = heap.front();
-      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 2");
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());
@@ -536,9 +538,9 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
     while(heap.size()>0) {
       // output char for the top of the heap
       SeqId s = heap.front();
-      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
+      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 2");
       uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
-      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 1");      
+      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 2");      
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());
@@ -561,12 +563,16 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
+    // there is a single run, soo a single potential SA value
     uint32_t s = id2merge[0];
-    for(long j=istart[s];j<istart[s+1];j++) {
-      if(fputc(char2write[0],fbwt)==EOF) die("BWT write error 1");
-      uint64_t sa = get_myint(bwsainfo,n,ilist[j]) - suffixLen;
-      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 1");
+    int bwtnext = char2write[0];
+    if(bwtnext!=bwtlast) {
+      uint64_t sa = get_myint(bwsainfo,n,ilist[istart[s]]) - suffixLen;
+      if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 1");
+      bwtlast = bwtnext;
     }
+    for(long j=istart[s];j<istart[s+1];j++) // write all BWT chars
+      if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 1");
     easy_bwts +=  istart[s+1]- istart[s];
   }
   else {  // many words, many chars...     
@@ -579,9 +585,13 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
     while(heap.size()>0) {
       // output char for the top of the heap
       SeqId s = heap.front();
-      if(fputc(s.char2write,fbwt)==EOF) die("BWT write error 3");
-      uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
-      if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 1");      
+      int bwtnext = s.char2write; 
+      if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 2");
+      if(bwtnext!=bwtlast) {
+        uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
+        if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 2");
+        bwtlast = bwtnext; 
+      }
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());

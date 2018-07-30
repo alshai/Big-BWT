@@ -34,7 +34,8 @@ def main():
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
   parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
-  parser.add_argument('-s',  help='compute Suffix Array',action='store_true')
+  parser.add_argument('-s',  help='compute the sampled Suffix Array',action='store_true')
+  parser.add_argument('-S',  help='compute Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
   parser.add_argument('--sum', help='compute output files shasum',action='store_true')
@@ -48,7 +49,7 @@ def main():
     start0 = start = time.time()
     command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
-    if args.s: command += " -s"
+    if (args.s or args.S): command += " -s"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -66,7 +67,7 @@ def main():
       command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
-    if args.s: command += " -s"
+    if (args.s or args.S): command += " -s"
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -85,7 +86,8 @@ def main():
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
-    if args.s: command += " -S"
+    if args.s: command += " -s"
+    elif args.S: command += " -S"
     
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
@@ -97,7 +99,7 @@ def main():
     if args.sum:
       digest = file_digest(args.input +".bwt",logfile)
       print("BWT {exe}: {digest}".format(exe=shasum_exe, digest=digest))
-      if args.s:
+      if args.S:
         digest = file_digest(args.input +".sa",logfile)
         print("SA  {exe}: {digest}".format(exe=shasum_exe, digest=digest))
  
@@ -107,7 +109,7 @@ def main():
       command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
       if(execute_command(command,logfile,logfile_name)!=True):
         return
-      if args.s:
+      if args.s or args.S:
         command = "rm {file}.sai {file}.bwsai".format(file=args.input);
         if(execute_command(command,logfile,logfile_name)!=True):
           return
