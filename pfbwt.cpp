@@ -110,7 +110,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   FILE *safile = open_safile(arg);
   
   // compute sa and bwt of d and do some checking on them 
-  uint_t *sa; int_t *lcp; 
+  uint_t *sa; int_t *lcp;
   compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
   // set d[0] ==0 as this is the EOF char in the final BWT
   assert(d[0]==Dollar);
@@ -152,14 +152,25 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
           else assert(j==1); // the first word in the parse is the 2nd lex smaller
         }
         else if(arg.sampledSA) { // sampled SA 
-          if(nextbwt!=lastbwt) {
-            uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
-            if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 0");            
+          if(seqid>0) { // if not the first word in the parse output SA values
+            if(nextbwt!=lastbwt) {
+              uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
+              uint64_t pos = easy_bwts + hard_bwts;
+              if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 0a");
+              if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 0b");            
+            }
+          }
+          else {
+            uint64_t sa = 1979;
+            uint64_t pos = easy_bwts + hard_bwts;
+            if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 01a");
+            if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 01b");
           }
         }
         // in any case output BWT char 
         if(fputc(nextbwt,fbwt)==EOF) die("BWT write error 0");
-        lastbwt = nextbwt;   // update lastbwt 
+        lastbwt = nextbwt;   // update lastbwt
+        easy_bwts++;
       }
       continue; // proceed with next i 
     }
@@ -381,7 +392,7 @@ static FILE *open_safile(Args &arg)
 
 static uint8_t *load_bwsa_info(Args &arg, long n)
 {  
-  // maybe sa info was not required 
+  // maybe sa info is not really needed 
   if(arg.SA==false and arg.sampledSA==false) return NULL;
   // open .bwsa file for reading and .bwlast for writing
   FILE *fin = open_aux_file(arg.basename,EXTBWSAI,"rb");
@@ -563,12 +574,14 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
-    // there is a single run, soo a single potential SA value
+    // there is a single run, so a single potential SA value
     uint32_t s = id2merge[0];
     int bwtnext = char2write[0];
     if(bwtnext!=bwtlast) {
       uint64_t sa = get_myint(bwsainfo,n,ilist[istart[s]]) - suffixLen;
-      if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 1");
+      uint64_t pos = easy_bwts + hard_bwts;
+      if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 1a");
+      if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 1b");
       bwtlast = bwtnext;
     }
     for(long j=istart[s];j<istart[s+1];j++) // write all BWT chars
@@ -589,7 +602,9 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
       if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 2");
       if(bwtnext!=bwtlast) {
         uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
-        if(fwrite(&sa,SABYTES,1,safile)!=1) die("SA write error 2");
+        uint64_t pos = easy_bwts + hard_bwts;
+        if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 2a");
+        if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 2b");
         bwtlast = bwtnext; 
       }
       hard_bwts += 1;

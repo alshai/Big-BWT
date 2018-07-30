@@ -41,14 +41,13 @@ def main():
   with open(outname,"wb") as args.outfile:
     output_pair(0,size-1,args)          # bwt[0] = text[size-1] is the beginning of a run 
     with open(args.input + ".bwt","rb") as bwt:
-      bwtlast = struct.unpack('B',bwt.read(1))
-      i=0
+      bwtlast = struct.unpack('B',bwt.read(1))[0] # this is bwt[0]
       with open(args.input + ".sa", "rb") as sa:
         for i in range(1,size):
           # read a pair bwt/sa
           buf = bwt.read(1)
           if len(buf)!=1: raise "Unexpected end of BWT file"
-          bwtnext = struct.unpack('B',buf)[0]
+          bwtnext = struct.unpack('B',buf)[0] # this is bwt[i]
           buf = sa.read(args.B)
           if len(buf)!=args.B: raise "Unexpected end of SA file"
           buf += bytes(8-args.B)

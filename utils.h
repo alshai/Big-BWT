@@ -9,7 +9,7 @@
 
 // number of bytes to represent integers larger than 32 bit
 #define IBYTES 5     // bytes used to represent a large integer (at most 8)
-#define SABYTES 5    // bytes used to write a suffix array value in the output .sa file 
+#define SABYTES 4    // bytes used to write a suffix array value in the output .sa file 
 
 // file name extensions
 #define EXTPARSE "parse"
