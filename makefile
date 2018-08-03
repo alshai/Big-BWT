@@ -38,12 +38,13 @@ newscan.x: newscan.cpp malloc_count.o utils.o
 
 
 # prefix free BWT construction. malloc_count not used since not compatible with -pthread
-pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o xerrors.o
-	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o xerrors.o -pthread 
+pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o xerrors.o malloc_count.o
+	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o xerrors.o malloc_count.o -pthread -ldl
 
-pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o xerrors.o
-	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o xerrors.o -pthread -DM64
+pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o xerrors.o malloc_count.o
+	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o xerrors.o malloc_count.o -pthread -ldl -DM64
 
+# TO BE REMOVED? (now pfbwt*.x work with malloc_count)
 # prefix free BWT construction without threads: useful since supports malloc_count
 pfbwtNT.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
@@ -55,7 +56,7 @@ pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile gsa/gsacak.[ch] utils.[ch] xerrors.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
 	rm -f $(EXECS) *.o gsa/*.o

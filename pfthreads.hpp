@@ -90,12 +90,13 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
   
   time_t  start = time(NULL);  
   // create eos[] array with ending position in d[] of each word
-  uint_t *eos = sa + 1;
+  assert(sa[0]==dsize-1); // lex first suffix is EndOfDict
+  uint_t *eos = sa + 1;   // eos[i] is ending position of word i for i=0,...,dwords-1  
   int_t *wlen = lcp + 1;
   // save length of word i in lcp[i+1]==suflen[i] (sa[i+1]=eos[i] is the position of its eos)
-  wlen[0] = eos[0];
+  wlen[0] = eos[0];      // length of first word is the potision of its EnfOfWord
   for(long i=1;i<dwords;i++) {
-    wlen[i] = eos[i]-eos[i-1] -1;
+    wlen[i] = eos[i]-eos[i-1] -1;// length is distance between consecutive EndOfWord's
     assert(wlen[i]>0);
     assert(d[eos[i-1]]==EndOfWord);
     assert(d[eos[i-1]+wlen[i]+1]==EndOfWord);
@@ -188,6 +189,9 @@ typedef struct {
   pthread_mutex_t cons_m;    // mutex and semaphores 
   sem_t free_slots, data_items;
   int bwt_fd;                // file descriptor for the bwt output file  
+  bool SA;                   // if true the full SA is required 
+  int sa_fd;                 // file descriptor for the sa output file  
+  uint8_t *bwsainfo;         // positions in the origina text of parsed words  
   long full_words;           // output parameters, access with a mutex_consumer
   long easy_bwts; 
   long hard_bwts; 
@@ -243,6 +247,7 @@ static void *merge_body(void *v)
 
   long i, next, c, full_words=0, easy_bwts=0, hard_bwts=0;
   uint8_t *local_bwt = NULL;
+  uint8_t *local_sa = NULL;
   // main loop 
   while(true) {
     // --- get starting position from buffer 
@@ -256,6 +261,10 @@ static void *merge_body(void *v)
     // process range [start,end]
     local_bwt = (uint8_t *) realloc(local_bwt,r.count);
     assert(local_bwt!=NULL);
+    if(d->SA) { // if we need to compute the sa, alloc space for it
+      local_sa = (uint8_t *) realloc(local_bwt,SABYTES*r.count);
+      assert(local_sa!=NULL);
+    }
     for(c=0, i = r.start; i<r.end; i=next){
       // we are considering d[sa[i]....] belonging to da[i]
       next = i+1;  // prepare for next iteration  
@@ -266,8 +275,15 @@ static void *merge_body(void *v)
       // ----- simple case: the suffix is a full word 
       if(d->suflen[i]==d->wlen[seqid]) {
         full_words++;
-        for(long j=d->istart[seqid];j<d->istart[seqid+1];j++) 
-          local_bwt[c++] = d->last[d->ilist[j]];
+        for(long j=d->istart[seqid];j<d->istart[seqid+1];j++) {
+          int nextbwt = d->last[d->ilist[j]]; // compute next bwt char
+          if(d->SA) {
+            uint64_t sa = get_myint(d->bwsainfo,d->psize,d->ilist[j]) - d->suflen[i];
+            local_sa;
+          } 
+          local_bwt[c++] = nextbwt;
+          easy_bwts++;
+        }
         continue; // proceed with next i 
       }
       // ----- hard case: there can be a group of equal suffixes starting at i
@@ -316,10 +332,14 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
 {  
   (void) psize; // used only in assertions
   assert(arg.th>0); 
-  if(arg.SA || arg.sampledSA) {
+  if(arg.sampledSA) {
     cout << "Mutithread version doesn't support computation of SA values yet\n";
     exit(1);
   }
+  // possibly read bwsa info file
+  assert(!arg.SA or (IBYTES==SABYTES));  // if computing SA we need 
+  uint8_t *bwsainfo = load_bwsa_info(arg,psize);
+  
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp; 
   compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
@@ -346,7 +366,9 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   td.cindex=0;
   pc_init(&td.free_slots,&td.data_items,&td.cons_m); 
   td.bwt_fd = get_bwt_fd(arg.basename); // file descriptor of output bwt file
-
+  td.SA = arg.SA;                       // fields possibly used for SA computation 
+  td.sa_fd = arg.SA ? get_sa_fd(arg.basename) : -1; // sa_fd<0 means SA not requested  
+  td.bwsainfo = bwsainfo;
   // start consumer threads
   pthread_t t[arg.th];
   for(int i=0;i<arg.th;i++)
@@ -415,6 +437,11 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   close(td.bwt_fd); // close bwt file
   delete[] lcp;
   delete[] sa;
+  if(arg.SA) {
+    assert(td.sa_fd>=0);
+    close(td.sa_fd); // close sa file
+    free(bwsainfo);  // free sa info
+  }
 }
 
 // compute size of the bwt adding 1 to the input size
@@ -440,6 +467,7 @@ static int get_bwt_fd(char *name)
   // open output file and map it to the bwt array 
   // FILE *fbwt = open_aux_file(name,"bwt","wb+");
   int bwt_fd = fd_open_aux_file(name,"bwt",O_CREAT|O_WRONLY|O_TRUNC);
+  if(bwt_fd<0) die("Error opening output BWT file");
   // make the BWT file of the correct size (otherwise mmap fails)
   //!!if(ftruncate(bwt_fd,bwt_size)<0) die("truncate failed");
   //uint8_t *bwt = (uint8_t *) mmap(NULL,bwt_size,PROT_READ|PROT_WRITE,MAP_SHARED,fileno(fbwt), 0);
@@ -447,6 +475,14 @@ static int get_bwt_fd(char *name)
   //fclose(fbwt); 
   return bwt_fd;
 }
+
+static int get_sa_fd(char *name)
+{
+  int sa_fd = fd_open_aux_file(name,"sa",O_CREAT|O_WRONLY|O_TRUNC);
+  if(sa_fd<0) die("Error opening output SA file");
+  return sa_fd;
+}
+
 
 // initialize/destroy semaphores and mutex for producer/consumer 
 static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m)

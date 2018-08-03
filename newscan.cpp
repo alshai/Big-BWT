@@ -24,7 +24,7 @@
  * newscan outputs the following files:
  * 
  * file.dict
- * containing the dictionary words in lexicogaphic order with a 0x1 at the end of
+ * containing the dictionary words in lexicographic order with a 0x1 at the end of
  * each word and a 0x0 at the end of the file. Size: |D| + d + 1 where
  * |D| is the sum of the word lengths
  * 

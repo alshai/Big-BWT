@@ -102,6 +102,9 @@ def main():
       if args.S:
         digest = file_digest(args.input +".sa",logfile)
         print("SA  {exe}: {digest}".format(exe=shasum_exe, digest=digest))
+      elif args.s:
+        digest = file_digest(args.input +".ssa",logfile)
+        print("SSA {exe}: {digest}".format(exe=shasum_exe, digest=digest))
  
     # ---- delete intermediate files
     if args.k==False:

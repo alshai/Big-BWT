@@ -112,7 +112,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   // compute sa and bwt of d and do some checking on them 
   uint_t *sa; int_t *lcp;
   compute_dict_bwt_lcp(d,dsize,dwords,arg.w,&sa,&lcp);
-  // set d[0] ==0 as this is the EOF char in the final BWT
+  // set d[0]==0 as this is the EOF char in the final BWT
   assert(d[0]==Dollar);
   d[0]=0;
 
@@ -161,7 +161,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
             }
           }
           else {
-            uint64_t sa = 1979;
+            uint64_t sa = -1;//!!!! still to be decided the format!
             uint64_t pos = easy_bwts + hard_bwts;
             if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 01a");
             if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 01b");
@@ -445,6 +445,12 @@ static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid)
 
 // compute the SA and LCP array for the set of (unique) dictionary words
 // using gSACA-K. Also do some checking based on the number and order of the special symbols
+// d[0..dsize-1] is the dictionarr consisting of the concatenation of dictionary words
+// in lex order with EndOfWord (0x1) at the end of each word and 
+// d[size-1] = EndOfDict (0x0) at the very end. It is d[0]=Dollar (0x2)
+// since the first words starts with $. There is another word somewhere
+// ending with Dollar^wEndOfWord (it is the last word in the parsing,
+// but its lex rank is unknown).  
 static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, 
                           uint_t **sap, int_t **lcpp) // output parameters
 {
