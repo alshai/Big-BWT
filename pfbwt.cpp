@@ -1,10 +1,13 @@
 /* **************************************************************************
  * pfbwt.cpp
+ * Output the BWT, the SA (option -S) or the sampled SA (option -s)
+ * computed using the prefix-free aprsng technique
  *  
  * Usage:
- *   mbwt.x wsize file numthreads
+ *   pfbwt[64].x -h
+ * for usage info
  *
- * See newscan.cpp for usage 
+ * See newscan.cpp for a description of what it does  
  * 
  **************************************************************************** */
 #include <assert.h>
@@ -152,7 +155,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
           else assert(j==1); // the first word in the parse is the 2nd lex smaller
         }
         else if(arg.sampledSA) { // sampled SA 
-          if(seqid>0) { // if not the first word in the parse output SA values
+          if(seqid>0) { // if not the first word in the parse output (pos,SA[pos]) pair
             if(nextbwt!=lastbwt) {
               uint64_t sa = get_myint(bwsainfo,psize,ilist[j]) - suffixLen;
               uint64_t pos = easy_bwts + hard_bwts;
@@ -160,9 +163,10 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
               if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 0b");            
             }
           }
-          else {
-            uint64_t sa = -1;//!!!! still to be decided the format!
+          else { // first word in the parsing as a full word. We are at the very beginning of the BWT
+            uint64_t sa = get_myint(bwsainfo,psize,0) - arg.w; // this is length of the original text 
             uint64_t pos = easy_bwts + hard_bwts;
+            assert(pos==0);
             if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 01a");
             if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 01b");
           }
@@ -206,7 +210,7 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   fclose(fbwt);
   delete[] lcp;
   delete[] sa;
-  if(arg.SA) { fclose(safile); free(bwsainfo); }
+  if(arg.SA or arg.sampledSA) { fclose(safile); free(bwsainfo); }
 }  
 
 void print_help(char** argv, Args &args) {
@@ -572,7 +576,7 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
 }
 
 // write to the bwt all the characters preceding a given suffix
-// and the corresponding SA entries doing a merge operation
+// and the corresponding sampled SA entries doing a merge operation
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,

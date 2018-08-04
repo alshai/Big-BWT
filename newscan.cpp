@@ -42,6 +42,10 @@
  * contaning the charater in positon w+1 from the end for each dictionary word
  * Size: d
  * 
+ * file.sai (if option -s is given on the command line) 
+ * containing the ending position +1 of each dictionary word in the original
+ * text written using IBYTES bytes for each entry 
+ * Size: d*IBYTES
  * 
  * The output of newscan must be processed by bwtparse, that, invoked as
  * 
@@ -59,6 +63,10 @@
  * if SA[i]==1, BWT[i]=P[0] and file.bwlast[i] is taken from P[n-1], the last 
  * word in the parsing).  
  * 
+ * If the option -s is given to bwtparse, it permutes file.sai according
+ * to the BWT permutation and generate file.bwsai using again IBYTES
+ * per entry.  file.bwsai[i] is the ending position+1 ofBWT[i] in the 
+ * original text 
  * 
  * The output of bwtparse (the files .ilist .bwlast) together with the
  * dictionary itself (file .dict) and the number of occurrences
@@ -232,7 +240,7 @@ void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>& 
   // output char w+1 from the end
   if(fputc(w[w.size()- minsize-1],last)==EOF) die("Error writing to .last file");
   // compute ending position +1 of current word and write it to sa file 
-  if(pos==0) pos = w.size()-1;
+  if(pos==0) pos = w.size()-1; // -1 is for the initial $ of the first word
   else pos += w.size() -minsize; 
   if(sa) if(fwrite(&pos,IBYTES,1,sa)!=1) die("Error writing to sa info file");
   // keep only the overlapping part of the window
@@ -267,7 +275,7 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
   FILE *last_file = fopen(fnamelast.c_str(),"wb");
   if(last_file==NULL) die("Cannot open " + fnamelast); 
   
-  // if requested open file containing the starting position of each word
+  // if requested open file containing the ending position+1 of each word
   FILE *sa_file = NULL; string sa_name = "<not used>";
   if(arg.SAinfo) {
     sa_name = arg.inputFileName + "." + arg.saExt;

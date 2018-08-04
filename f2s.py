@@ -5,17 +5,30 @@ import sys, time, argparse, subprocess, os.path, struct
 Description = """
 Tool to extract from the full suffix array the pairs (position,value) 
 such that SA[position]=value and BWT(position)!=BWT(position-1)
+
+The tool needs the files 
+   infile.bwt (one byte per entry)
+   infile.sa  (5 bytes per entry, changable with option -B)
+where the .sa file has one entry less than the .bwt file, and creates 
+a file named infile.first (changeable with option -o) contaning for each position
+pos corresponding to the first char of a BWT run the pair (pos,sa[pos])
+written using 5 bytes per entry (changeable with option -b).
+
+The purpose of the tool is mainly to test the correctness of bigbwt with
+option -s that computes the same information using prefix free parsing
+without building the full SA. 
 """
 
+shasum_exe = "sha256sum"
 
 def main():
   parser = argparse.ArgumentParser(description=Description, formatter_class=argparse.RawTextHelpFormatter)
   parser.add_argument('input', help='input file name', type=str)
-  parser.add_argument('-b', help='number of bytes per entry (output)', default=5, type=int)
-  parser.add_argument('-B', help='number of bytes per entry (input)', default=5, type=int)
-  parser.add_argument('-a',  help='output values to stderr',action='store_true')
-  parser.add_argument('-o',  help='output file name',default="", type=str)
-  parser.add_argument('--sum', help='compute output files shasum',action='store_true')
+  parser.add_argument('-b', help='number of bytes per entry (output, def. 5)', default=5, type=int)
+  parser.add_argument('-B', help='number of bytes per entry (input, def. 5)', default=5, type=int)
+  parser.add_argument('-a',  help='output pairs in plain text to stderr',action='store_true')
+  parser.add_argument('-o',  help='output file name (def. input.first)',default="", type=str)
+  parser.add_argument('--sum', help='compute output file shasum',action='store_true')
   #parser.add_argument('-v',  help='verbose',action='store_true')
   args = parser.parse_args()
   start0 = start = time.time()
@@ -60,6 +73,11 @@ def main():
           raise "SA file too long"
       if len(bwt.read(1))>0:
           raise "BWT file too long"
+  # show digest is requested         
+  if args.sum:
+    digest = file_digest(outname)            
+    print("SSA {exe}: {digest}".format(exe=shasum_exe, digest=digest))    
+    
   print("==== Done")
 
 
@@ -84,15 +102,16 @@ def output_int(a,size,f):
 
 
 # compute hash digest for a file 
-def file_digest(name,logfile):
+def file_digest(name):
     try:
       hash_command = "{exe} {infile}".format(exe=shasum_exe, infile=name)
-      hashsum = subprocess.check_output(hash_command.split(),stderr=logfile)
+      hashsum = subprocess.check_output(hash_command.split())
       hashsum = hashsum.decode("utf-8").split()[0]
     except:
       hashsum = "Error!" 
     return hashsum  
 
+"""
 # execute command: return True is everything OK, False otherwise
 def execute_command(command,logfile,logfile_name):
   try:
@@ -103,7 +122,7 @@ def execute_command(command,logfile,logfile_name):
     print("Check log file: " + logfile_name)
     return False
   return True
-
+"""
 
 
 if __name__ == '__main__':

@@ -15,7 +15,7 @@
 // If the -s option is used, also remap the sa values in the .sai 
 // file (that uses IBYTES bytes per entry) producing the .bwsai file
 
-// The remapping is as follows, let T[0] T[1] ... T[n-1] T[n]
+// The remapping is done as follows, let T[0] T[1] ... T[n-1] T[n]
 // the input parse with T[n]=0 is an extra EOS symbol added here   
 // For j=0,...,n, if BWT[j] = T[i] then:
 //   bwisa[j]  is the ending position+1 of T[i] in the original text 
@@ -29,7 +29,7 @@
 // For some j it is BWT[j]=T[0], for that j we set
 //   bwisa[j] = ending position + 1 of T[0] as expected
 //   bwlast[j] = char in position w from the end in T[n-1] (it should formally be
-//               T[n] but again that is dummy symbol and we skip it)
+//               T[n] but again that is a dummy symbol and we skip it)
 
 // From the BWT we compute and output the .ilist file giving 
 // for each parsing symbol (considered in alphabetical order)
@@ -66,7 +66,9 @@ typedef struct {
 
 
 // read the parse file, add a 0 EOS symbol and return a pointer 
-// to a new allocate utin32_t array containing it. Store size in *tsize  
+// to a new allocate uint32_t array containing it. Store size in *tsize
+// note *tsize is the number of element in the parsing, but we add a 0
+// symbol at the end so the returned array has *tsize+1 elements 
 static uint32_t *read_parse(char *basename, long *tsize) 
 {  
   FILE *parse = open_aux_file(basename,EXTPARSE,"rb");
@@ -235,6 +237,7 @@ int main(int argc, char *argv[])
   uint8_t *sa_info = load_sa_info(&arg,n); 
   FILE *lastout = open_aux_file(arg.basename,EXTBWLST,"wb");   
   FILE *sa_out = open_sa_out(&arg);
+  // note that lastout and sa_out files will have n+1 elements instead of n
 
   // transform SA->BWT inplace and write remapped last array, and possibly sainfo
   sa_index_t *BWTsa = SA; // BWT overlapping SA
@@ -243,14 +246,14 @@ int main(int argc, char *argv[])
   assert(SA[0]==n);
   BWTsa[0] = Text[n-1];
   if(fputc(last[n-2],lastout)==EOF) die("bwlast output 1");
-  if(arg.SAinfo) get_and_write_myint(sa_info,n,n-1,sa_out); // ending position of BWT symbol in original text
+  if(arg.SAinfo) get_and_write_myint(sa_info,n,n-1,sa_out); // ending position+1 of Text[n-1] in original text T (is |T|+w) 
   // 2nd, 3rd etc BWT symbols 
   for(long i=1;i<=n;i++) {
-    if(SA[i]==0) {
-      assert(i==1);
+    if(SA[i]==0) {  
+      assert(i==1);  // Text[0]=$abc... is the second lex word 
       BWTsa[i] = 0;   // eos in BWT, there is no phrase in D corresponding to this symbol so we write dummy values
       if(fputc(0,lastout)==EOF) die("bwlast output 2"); // dummy char 
-      if(arg.SAinfo) write_myint(0,sa_out); // dummy end of word position 
+      if(arg.SAinfo) write_myint(0,sa_out); // dummy end of word position, it is never used an 0 does not appear elsewhere in sa_out
     }
     else {
       if(SA[i]==1) {
