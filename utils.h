@@ -8,8 +8,8 @@
 #define EndOfDict 0  // end of dictionary delimiter 
 
 // number of bytes to represent integers larger than 32 bit
-#define IBYTES 5     // bytes used to represent a large integer (at most 8)
-#define SABYTES 5    // bytes used to write a suffix array value in the output .sa file 
+#define IBYTES 5         // bytes used to represent a large integer (at most 8)
+#define SABYTES IBYTES   // bytes used to write a suffix array value in the output .sa file 
 
 // file name extensions
 #define EXTPARSE "parse"
