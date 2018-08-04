@@ -13,6 +13,8 @@ extern "C" {
 
 //static size_t get_bwt_size(char *name);
 static int get_bwt_fd(char *name);
+static int get_sa_fd(char *name);
+static void fd_write(int fd, uint8_t *b,long towrite,long start);
 static void pc_init(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
 static void pc_destroy(sem_t *free_slots, sem_t *data_items, pthread_mutex_t *m);
 void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w, int numt);
@@ -90,7 +92,7 @@ void sa2da(uint_t sa[], int_t lcp[], uint8_t d[], long dsize, long dwords, int w
   
   time_t  start = time(NULL);  
   // create eos[] array with ending position in d[] of each word
-  assert(sa[0]==dsize-1); // lex first suffix is EndOfDict
+  assert((long) sa[0]==dsize-1); // lex first suffix is EndOfDict
   uint_t *eos = sa + 1;   // eos[i] is ending position of word i for i=0,...,dwords-1  
   int_t *wlen = lcp + 1;
   // save length of word i in lcp[i+1]==suflen[i] (sa[i+1]=eos[i] is the position of its eos)
@@ -191,7 +193,8 @@ typedef struct {
   int bwt_fd;                // file descriptor for the bwt output file  
   bool SA;                   // if true the full SA is required 
   int sa_fd;                 // file descriptor for the sa output file  
-  uint8_t *bwsainfo;         // positions in the origina text of parsed words  
+  uint8_t *bwsainfo;         // positions in the origina text of parsed words
+  long psize;                // size of bwsainfo
   long full_words;           // output parameters, access with a mutex_consumer
   long easy_bwts; 
   long hard_bwts; 
@@ -241,6 +244,54 @@ static void write_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t>
 }
 
 
+// write to the bwt all the characters preceding a given suffix
+// doing a merge operation if necessary
+static void write_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
+                                    uint32_t *ilist, uint32_t *istart,
+                                    uint8_t *local_bwt, uint8_t *local_sa, long &c, long &easy_bwts, long &hard_bwts,
+                                    int_t suffixLen, uint8_t *bwsainfo, long n)
+{
+  size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
+  if(numwords==1) {
+    uint32_t s = id2merge[0];
+    int nextbwt = char2write[0];
+    for(long j=istart[s];j<istart[s+1];j++) {
+      uint64_t sa = get_myint(bwsainfo,n,ilist[j]) - suffixLen;
+      memcpy(local_sa + c*SABYTES,&sa,SABYTES);// write SA value to sa buffer
+      local_bwt[c++] = nextbwt;                // write BWT value to bwt buffer
+      easy_bwts++;
+    }
+  }  
+  else {  // many words, many chars...     
+    vector<SeqId> heap; // create heap
+    for(size_t i=0; i<numwords; i++) {
+      uint32_t s = id2merge[i];
+      heap.push_back(SeqId(s,istart[s+1]-istart[s], ilist+istart[s], char2write[i]));
+    }
+    std::make_heap(heap.begin(),heap.end());
+    while(heap.size()>0) {
+      // output char for the top of the heap
+      SeqId s = heap.front();
+      uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
+      memcpy(local_sa + c*SABYTES,&sa,SABYTES);// write SA value to sa buffer
+      local_bwt[c++] = s.char2write;          // write BWT value to bwt buffer
+      hard_bwts += 1;
+      // remove top 
+      pop_heap(heap.begin(),heap.end());
+      heap.pop_back();
+      // if remaining positions, reinsert to heap
+      if(s.next()) {
+        heap.push_back(s);
+        push_heap(heap.begin(),heap.end());
+      }
+    }
+  }
+}
+
+
+
+
+
 static void *merge_body(void *v)
 {
   thread_data *d = (thread_data *) v;
@@ -279,7 +330,7 @@ static void *merge_body(void *v)
           int nextbwt = d->last[d->ilist[j]]; // compute next bwt char
           if(d->SA) {
             uint64_t sa = get_myint(d->bwsainfo,d->psize,d->ilist[j]) - d->suflen[i];
-            local_sa;
+            memcpy(local_sa + c*SABYTES,&sa,SABYTES);
           } 
           local_bwt[c++] = nextbwt;
           easy_bwts++;
@@ -300,22 +351,21 @@ static void *merge_body(void *v)
         }
         else break;
       }
-      write_chars_same_suffix(id2merge, char2write, d->ilist,d->istart,local_bwt,c,easy_bwts,hard_bwts);
+      if(d->SA)
+        write_chars_same_suffix_sa(id2merge, char2write, d->ilist,d->istart,local_bwt,local_sa,c,easy_bwts,hard_bwts,
+        d->suflen[i],d->bwsainfo,d->psize);
+      else
+        write_chars_same_suffix(id2merge, char2write, d->ilist,d->istart,local_bwt,c,easy_bwts,hard_bwts);
     }
     assert(i==r.end);
     assert(c==r.count);
     // write local_bwt to file d->bwt_fd starting from position r.bwt_start
-    c = 0; 
-    while(r.count>0) {
-      long written = pwrite(d->bwt_fd,local_bwt+c,r.count,r.bwt_start);
-      if(written<0) die("pwrite error (1)");
-      if(written>r.count) die("pwrite error (2)");
-      r.count -= written;
-      r.bwt_start += written;
-      c += written;
-    }
+    fd_write(d->bwt_fd,local_bwt,r.count,r.bwt_start);
+    // if requested write SA values to file d->sa_fd
+    if(d->SA) fd_write(d->sa_fd,local_sa,r.count*SABYTES,r.bwt_start*SABYTES);
   }
   if(local_bwt!=NULL) free(local_bwt);
+  if(local_sa!=NULL) free(local_sa);
   xpthread_mutex_lock(&d->cons_m,__LINE__,__FILE__);
   d->easy_bwts += easy_bwts;  
   d->hard_bwts += hard_bwts;  
@@ -324,6 +374,19 @@ static void *merge_body(void *v)
   return NULL;
 }
 
+// write towrite bytes from buffer b in file descriptor fd starting from offset start 
+static void fd_write(int fd, uint8_t *b,long towrite,long start)
+{
+  long c = 0; 
+  while(towrite>0) {
+    long written = pwrite(fd,b+c,towrite,start);
+    if(written<0) die("pwrite error (1)");
+    if(written>towrite) die("pwrite error (2)");
+    towrite -= written;
+    start += written;
+    c += written;
+  }  
+}
 
 // bwt construction from dictionary and parse using multiple threads
 void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size  
@@ -337,7 +400,6 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
     exit(1);
   }
   // possibly read bwsa info file
-  assert(!arg.SA or (IBYTES==SABYTES));  // if computing SA we need 
   uint8_t *bwsainfo = load_bwsa_info(arg,psize);
   
   // compute sa and bwt of d and do some checking on them 
@@ -369,6 +431,7 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   td.SA = arg.SA;                       // fields possibly used for SA computation 
   td.sa_fd = arg.SA ? get_sa_fd(arg.basename) : -1; // sa_fd<0 means SA not requested  
   td.bwsainfo = bwsainfo;
+  td.psize = psize;
   // start consumer threads
   pthread_t t[arg.th];
   for(int i=0;i<arg.th;i++)

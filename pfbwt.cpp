@@ -56,9 +56,9 @@ static int_t getlen(uint_t p, uint_t eos[], long n, uint32_t *seqid);
 static void compute_dict_bwt_lcp(uint8_t *d, long dsize,long dwords, int w, uint_t **sap, int_t **lcpp);
 static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts);
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                     int suffixLen, FILE *safile, uint8_t *bwsainfo,long);
+                                     int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long);
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                     int suffixLen, FILE *safile, uint8_t *bwsainfo,long, int &);
+                                     int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long, int &);
 static uint8_t *load_bwsa_info(Args &arg, long n);
 static FILE *open_safile(Args &arg);
 
@@ -533,7 +533,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                    int suffixLen, FILE *safile, uint8_t *bwsainfo, long n)
+                                    int_t suffixLen, FILE *safile, uint8_t *bwsainfo, long n)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
@@ -576,7 +576,7 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                    int suffixLen, FILE *safile, uint8_t *bwsainfo, long n, int &bwtlast)
+                                    int_t suffixLen, FILE *safile, uint8_t *bwsainfo, long n, int &bwtlast)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
