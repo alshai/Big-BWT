@@ -313,7 +313,7 @@ static void *merge_body(void *v)
     local_bwt = (uint8_t *) realloc(local_bwt,r.count);
     assert(local_bwt!=NULL);
     if(d->SA) { // if we need to compute the sa, alloc space for it
-      local_sa = (uint8_t *) realloc(local_bwt,SABYTES*r.count);
+      local_sa = (uint8_t *) realloc(local_sa,SABYTES*r.count);
       assert(local_sa!=NULL);
     }
     for(c=0, i = r.start; i<r.end; i=next){
@@ -329,7 +329,13 @@ static void *merge_body(void *v)
         for(long j=d->istart[seqid];j<d->istart[seqid+1];j++) {
           int nextbwt = d->last[d->ilist[j]]; // compute next bwt char
           if(d->SA) {
-            uint64_t sa = get_myint(d->bwsainfo,d->psize,d->ilist[j]) - d->suflen[i];
+            uint64_t sa = 0;
+            if(seqid>0) { // if not the first word in the parse output SA values
+              sa = get_myint(d->bwsainfo,d->psize,d->ilist[j]) - d->suflen[i];
+            }
+            else assert(j==1); // the first word in the parse is the 2nd lex smaller
+            // if seqid==0 we are writing and invalid 0 value, but it will not be copied in the sa file
+            // this is done to keep the number of items written to bwt_local and sa_local equals  
             memcpy(local_sa + c*SABYTES,&sa,SABYTES);
           } 
           local_bwt[c++] = nextbwt;
@@ -362,7 +368,12 @@ static void *merge_body(void *v)
     // write local_bwt to file d->bwt_fd starting from position r.bwt_start
     fd_write(d->bwt_fd,local_bwt,r.count,r.bwt_start);
     // if requested write SA values to file d->sa_fd
-    if(d->SA) fd_write(d->sa_fd,local_sa,r.count*SABYTES,r.bwt_start*SABYTES);
+    if(d->SA) {
+      if(r.bwt_start==0) // skip first entry
+        fd_write(d->sa_fd,local_sa+SABYTES,(r.count-1)*SABYTES,r.bwt_start*SABYTES);
+      else   // write one entry left 
+        fd_write(d->sa_fd,local_sa,r.count*SABYTES,(r.bwt_start-1)*SABYTES);
+    }
   }
   if(local_bwt!=NULL) free(local_bwt);
   if(local_sa!=NULL) free(local_sa);
@@ -416,7 +427,6 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   long dasize= dsize - (dwords+arg.w+1);
   int_t *suflen = lcp + (dwords+arg.w+1);
   int_t *wlen = lcp+1;
-  lcp = NULL; sa = NULL; // make sure these are not used
 
   // init thread_data
   thread_data td;
