@@ -38,6 +38,7 @@ def main():
   parser.add_argument('-S',  help='compute the full Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
+  parser.add_argument('-f', help='read fasta',action='store_true')
   parser.add_argument('--sum', help='compute output files shasum',action='store_true')
   #parser.add_argument('-v',  help='verbose',action='store_true')
   args = parser.parse_args()
@@ -50,6 +51,7 @@ def main():
     command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.S): command += " -s"
+    if args.f: command += " -f"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return

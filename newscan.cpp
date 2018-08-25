@@ -123,6 +123,7 @@ struct Args {
    int w = 10;            // sliding window size and its default 
    int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;
+   bool is_fasta = false;
 };
 
 
@@ -264,6 +265,7 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
     throw new std::runtime_error("Cannot open input file " + string(fnam));
   }
 
+
   // open the 1st pass parsing file 
   string fparse = arg.inputFileName + "." + arg.parse0ext;
   // cout << "Writing tmp parsing to file " << fparse << endl;
@@ -290,15 +292,36 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
   // init first word in the parsing with a NUL char 
   string word("");
   word.append(1,Dollar);
-  while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-    word.append(1,c);
-    uint64_t hash = krw.addchar(c);
-    if(hash%arg.p==0) {
-      // end of word, save it and write its full hash to the output file
-      // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-    }    
+  std::string line;
+  if (arg.is_fasta) {
+      // remove newline chars, lines matching r"^>"
+      while (std::getline(f, line)) {
+          if (line[0] == '>')  // NOTE: newline removed by getline
+              continue;
+          // convert to uppercase
+          for (size_t i = 0; i < line.size(); i++) {
+              c = std::toupper(line[i]);
+              if (c <= Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
+              word.append(1, c);
+              uint64_t hash = krw.addchar(c);
+              if (hash%arg.p==0) {
+                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+              }
+          }
+          if (c <= Dollar) break;
+      }    
+  }
+  else {
+      while( (c = f.get()) != EOF ) {
+        if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
+        word.append(1,c);
+        uint64_t hash = krw.addchar(c);
+        if(hash%arg.p==0) {
+          // end of word, save it and write its full hash to the output file
+          // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
+          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+        }    
+      }
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
@@ -460,7 +483,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:sh") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fsh") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
@@ -470,6 +493,8 @@ void parseArgs( int argc, char** argv, Args& arg ) {
         case 'p':
         sarg.assign( optarg );
         arg.p = stoi( sarg ); break;
+        case 'f':
+        arg.is_fasta = true; break;
         case 'h':
            print_help(argv, arg); exit(1);
         case '?':
