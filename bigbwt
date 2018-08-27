@@ -16,16 +16,17 @@ takes 9n bytes of RAM. If this is a problem, just don't use the option -c and
 check the correctness of the BWT by some other means (for example inverting it)
 """
 
-parse_exe = "./newscan.x"
-parsebwt_exe = "./bwtparse"
-parsebwt_exe64 = "./bwtparse64"
-pfbwt_exe = "./pfbwt.x"
-pfbwtNT_exe = "./pfbwtNT.x"
-pfbwt_exe64 = "./pfbwt64.x"
-pfbwtNT_exe64 = "./pfbwt64NT.x"
-bwt_exe = "./simplebwt"
-bwt_exe64 = "./simplebwt64"
-shasum_exe = "sha256sum"
+dirname = os.path.dirname(os.path.abspath(__file__))
+parse_exe       =  os.path.join(dirname, "newscan.x")
+parsebwt_exe    =  os.path.join(dirname, "bwtparse")
+parsebwt_exe64  =  os.path.join(dirname, "bwtparse64")
+pfbwt_exe       =  os.path.join(dirname, "pfbwt.x")
+pfbwtNT_exe     =  os.path.join(dirname, "pfbwtNT.x")
+pfbwt_exe64     =  os.path.join(dirname, "pfbwt64.x")
+pfbwtNT_exe64   =  os.path.join(dirname, "pfbwt64NT.x")
+bwt_exe         =  os.path.join(dirname, "simplebwt")
+bwt_exe64       =  os.path.join(dirname, "simplebwt64")
+shasum_exe      =  "sha256sum"
 
 
 def main():
