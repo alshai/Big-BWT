@@ -17,15 +17,15 @@ check the correctness of the BWT by some other means (for example inverting it)
 """
 
 dirname = os.path.dirname(os.path.abspath(__file__))
-parse_exe       =  os.path.join(dirname, "newscan.x")
-parsebwt_exe    =  os.path.join(dirname, "bwtparse")
-parsebwt_exe64  =  os.path.join(dirname, "bwtparse64")
-pfbwt_exe       =  os.path.join(dirname, "pfbwt.x")
-pfbwtNT_exe     =  os.path.join(dirname, "pfbwtNT.x")
-pfbwt_exe64     =  os.path.join(dirname, "pfbwt64.x")
-pfbwtNT_exe64   =  os.path.join(dirname, "pfbwt64NT.x")
-bwt_exe         =  os.path.join(dirname, "simplebwt")
-bwt_exe64       =  os.path.join(dirname, "simplebwt64")
+parse_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "newscan.x")
+parsebwt_exe    =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse")
+parsebwt_exe64  =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse64")
+pfbwt_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwt.x")
+pfbwtNT_exe     =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwtNT.x")
+pfbwt_exe64     =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwt64.x")
+pfbwtNT_exe64   =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwtNT64.x")
+bwt_exe         =  "/usr/bin/time -v " + os.path.join(dirname, "simplebwt")
+bwt_exe64       =  "/usr/bin/time -v " + os.path.join(dirname, "simplebwt64")
 shasum_exe      =  "sha256sum"
 
 
