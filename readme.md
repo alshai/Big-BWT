@@ -1,3 +1,5 @@
+modified by Taher Mun to support fasta files
+
 # Big-BWT
 
 Tool to build the BWT and optionally the Suffix Array for highly repetitive files using the approach
