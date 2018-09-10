@@ -34,13 +34,18 @@ def main():
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
   parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
-  parser.add_argument('-s',  help='compute the run-length sampled Suffix Array',action='store_true')
+  parser.add_argument('-s',  help='compute the start run-length sampled Suffix Array',action='store_true')
+  parser.add_argument('-e',  help='compute the end run-length sampled Suffix Array',action='store_true')
   parser.add_argument('-S',  help='compute the full Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
   parser.add_argument('--sum', help='compute output files shasum',action='store_true')
   #parser.add_argument('-v',  help='verbose',action='store_true')
   args = parser.parse_args()
+  if(args.S and (args.s or args.e)):
+    print("You can either compute the full SA or a sample of it, not both. Exiting...")
+    return
+    
   logfile_name = args.input + ".log"
   print("Sending logging messages to file:", logfile_name)
   with open(logfile_name,"a") as logfile:  
@@ -49,7 +54,7 @@ def main():
     start0 = start = time.time()
     command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
-    if (args.s or args.S): command += " -s"
+    if (args.s or args.e or args.S): command += " -s"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -67,7 +72,7 @@ def main():
       command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
-    if (args.s or args.S): command += " -s"
+    if (args.s or args.e or args.S): command += " -s"
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -87,7 +92,8 @@ def main():
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
     if args.s: command += " -s"
-    elif args.S: command += " -S"
+    if args.e: command += " -e"
+    if args.S: command += " -S"
     
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):

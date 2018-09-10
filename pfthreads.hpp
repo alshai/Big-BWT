@@ -407,7 +407,7 @@ void bwt_multi(Args &arg, uint8_t *d, long dsize, // dictionary and its size
   (void) psize; // used only in assertions
   assert(arg.th>0); 
   if(arg.sampledSA) {
-    cout << "Mutithread version doesn't support computation of SA values yet\n";
+    cout << "Mutithread version doesn't support computation of sampled SA values yet\n";
     exit(1);
   }
   // possibly read bwsa info file

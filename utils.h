@@ -23,6 +23,7 @@
 #define EXTILIST "ilist"
 #define EXTSA    "sa"
 #define EXTSSA   "ssa"
+#define EXTESA   "esa"
 
 
 void die(const char *s);

@@ -15,8 +15,8 @@
 // If the -s option is used, also remap the sa values in the .sai 
 // file (that uses IBYTES bytes per entry) producing the .bwsai file
 
-// The remapping is done as follows, let T[0] T[1] ... T[n-1] T[n]
-// the input parse with T[n]=0 is an extra EOS symbol added here   
+// The remapping is done as follows, let T[0] T[1] ... T[n-1] T[n] denote
+// the input parse where T[n]=0 is an extra EOS symbol added here   
 // For j=0,...,n, if BWT[j] = T[i] then:
 //   bwisa[j]  is the ending position+1 of T[i] in the original text 
 //   bwlast[j] is the char immediately before T[i] in the original text,
