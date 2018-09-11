@@ -64,7 +64,7 @@ static void fwrite_chars_same_suffix(vector<uint32_t> &id2merge,  vector<uint8_t
 static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
                                      int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long);
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, uint32_t *ilist, uint32_t *istart, FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                     int_t suffixLen, FILE *safile, uint8_t *bwsainfo,long, int &, uint64_t &);
+                                     int_t suffixLen, FILE *ssafile, FILE *esafile, uint8_t *bwsainfo,long, int &, uint64_t &, int);
 static uint8_t *load_bwsa_info(Args &arg, long n);
 
 // class representing the suffix of a dictionary word
@@ -217,9 +217,15 @@ void bwt(Args &arg, uint8_t *d, long dsize, // dictionary and its size
     if(arg.SA)
       fwrite_chars_same_suffix_sa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,safile,bwsainfo,psize);
     else if(arg.sampledSA!=0)
-      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,ssafile,bwsainfo,psize,lastbwt, lastSa);
+      fwrite_chars_same_suffix_ssa(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts,suffixLen,ssafile,esafile,bwsainfo,psize,lastbwt,lastSa,arg.sampledSA);
     else 
       fwrite_chars_same_suffix(id2merge,char2write,ilist,istart,fbwt,easy_bwts,hard_bwts);
+  }
+  // write very last Sa pair
+  if(arg.sampledSA & END_RUN) {
+    uint64_t pos = easy_bwts+hard_bwts-1;
+    if(fwrite(&pos,SABYTES,1,esafile)!=1)   die("sampled SA write error 0e");
+    if(fwrite(&lastSa,SABYTES,1,esafile)!=1) die("sampled SA write error 0f");
   }
   assert(full_words==dwords);
   cout << "Full words: " << full_words << endl;
@@ -597,7 +603,8 @@ static void fwrite_chars_same_suffix_sa(vector<uint32_t> &id2merge,  vector<uint
 static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uint8_t> &char2write, 
                                     uint32_t *ilist, uint32_t *istart,
                                     FILE *fbwt, long &easy_bwts, long &hard_bwts,
-                                    int_t suffixLen, FILE *safile, uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast)
+                                    int_t suffixLen, FILE *ssafile, FILE *esafile, 
+                                    uint8_t *bwsainfo, long n, int &bwtlast, uint64_t &salast,int ssa)
 {
   size_t numwords = id2merge.size(); // numwords dictionary words contain the same suffix
   if(numwords==1) {
@@ -605,15 +612,24 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
     uint32_t s = id2merge[0];
     int bwtnext = char2write[0];
     if(bwtnext!=bwtlast) {
-      uint64_t sa = get_myint(bwsainfo,n,ilist[istart[s]]) - suffixLen;
       uint64_t pos = easy_bwts + hard_bwts;
-      if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 1a");
-      if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 1b");
+      if(ssa&START_RUN) {
+        uint64_t sa = get_myint(bwsainfo,n,ilist[istart[s]]) - suffixLen;
+        if(fwrite(&pos,SABYTES,1,ssafile)!=1) die("sampled SA write error 1a");
+        if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 1b");
+      }
+      if(ssa&END_RUN) {
+        pos--;
+        if(fwrite(&pos,SABYTES,1,esafile)!=1) die("sampled SA write error 1c");
+        if(fwrite(&salast,SABYTES,1,esafile)!=1) die("sampled SA write error 1d");        
+      }
       bwtlast = bwtnext;
     }
     for(long j=istart[s];j<istart[s+1];j++) // write all BWT chars
       if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 1");
     easy_bwts +=  istart[s+1]- istart[s];
+    if(ssa&END_RUN) // save the last sa value 
+      salast = get_myint(bwsainfo,n,ilist[istart[s+1]-1]) - suffixLen;
   }
   else {  // many words, many chars...     
     vector<SeqId> heap; // create heap
@@ -624,16 +640,26 @@ static void fwrite_chars_same_suffix_ssa(vector<uint32_t> &id2merge,  vector<uin
     std::make_heap(heap.begin(),heap.end());
     while(heap.size()>0) {
       // output char for the top of the heap
+      uint64_t sa;
       SeqId s = heap.front();
       int bwtnext = s.char2write; 
       if(fputc(bwtnext,fbwt)==EOF) die("BWT write error 2");
-      if(bwtnext!=bwtlast) {
-        uint64_t sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
+      if ((ssa & END_RUN) || (bwtnext!=bwtlast))
+        sa = get_myint(bwsainfo,n,*(s.bwtpos)) - suffixLen;
+      if (bwtnext!=bwtlast) {  
         uint64_t pos = easy_bwts + hard_bwts;
-        if(fwrite(&pos,SABYTES,1,safile)!=1) die("sampled SA write error 2a");
-        if(fwrite(&sa,SABYTES,1,safile)!=1) die("sampled SA write error 2b");
+        if(ssa & START_RUN) {
+          if(fwrite(&pos,SABYTES,1,ssafile)!=1) die("sampled SA write error 2a");
+          if(fwrite(&sa,SABYTES,1,ssafile)!=1) die("sampled SA write error 2b");
+        }
+        if(ssa & END_RUN) {
+          pos--;
+          if(fwrite(&pos,SABYTES,1,esafile)!=1)   die("sampled SA write error 2c");
+          if(fwrite(&salast,SABYTES,1,esafile)!=1) die("sampled SA write error 2d");
+        }
         bwtlast = bwtnext; 
       }
+      if(ssa & END_RUN) salast = sa; // save current sa 
       hard_bwts += 1;
       // remove top 
       pop_heap(heap.begin(),heap.end());
