@@ -2,17 +2,20 @@
  * newscan.cpp
  * 
  * parsing algorithm for the bwt construction for repetitive sequences based 
- * on prefix free parsing
+ * on prefix free parsing. See:
+ *   Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini
+ *   Prefix-Free Parsing for Building Big BWTs
+ *   [Proc. WABI '18](http://drops.dagstuhl.de/opus/volltexte/2018/9304/)
  * 
  * Usage:
  *   newscan.x wsize modulus file
  * 
- * Accept any kind of file that does not contain the chars 0x0, 0x1, 0x2 
+ * Accepts any kind of file that does not contain the chars 0x0, 0x1, 0x2 
  * which are used internally. If input file is gzipped use cnewscan.x which 
  * automatcally extracts the content
  * 
  * The parameters wsize and modulus are used to define the prefix free parsing 
- * using KR-fingerprints
+ * using KR-fingerprints (see paper)
  * 
  * The algorithm computes the prefix free parsing of 
  *     T = (0x2)file_content(0x2)^wsize
@@ -47,7 +50,7 @@
  * text written using IBYTES bytes for each entry 
  * Size: d*IBYTES
  * 
- * The output of newscan must be processed by bwtparse, that, invoked as
+ * The output of newscan must be processed by bwtparse, which invoked as
  * 
  *    bwtparse file
  * 
@@ -163,7 +166,7 @@ struct KR_window {
     // cerr << get_window() << " ~~ " << window << " --> " << hash << endl;
     return hash; 
   }
-  
+  // debug only 
   string get_window() {
     string w = "";
     int k = (tot_char-1) % wsize;
@@ -196,6 +199,7 @@ void die(const string s)
 }
 
 // compute 64-bit KR hash of a string 
+// to avoid overflows in 64 bit aritmethic the prime is taken < 2**55
 uint64_t kr_hash(string s) {
     uint64_t hash = 0;
     //const uint64_t prime = 3355443229;     // next prime(2**31+2**30+2**27)
@@ -265,28 +269,18 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
   }
 
   // open the 1st pass parsing file 
-  string fparse = arg.inputFileName + "." + arg.parse0ext;
-  // cout << "Writing tmp parsing to file " << fparse << endl;
-  FILE *g = fopen(fparse.c_str(),"wb");
-  if(g==NULL) die("Cannot open " + fparse);
-
+  FILE *g = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
   // open output file containing the char at position -(w+1) of each word
-  string fnamelast = arg.inputFileName + "." + arg.lastExt;
-  FILE *last_file = fopen(fnamelast.c_str(),"wb");
-  if(last_file==NULL) die("Cannot open " + fnamelast); 
-  
+  FILE *last_file = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
   // if requested open file containing the ending position+1 of each word
   FILE *sa_file = NULL; string sa_name = "<not used>";
-  if(arg.SAinfo) {
-    sa_name = arg.inputFileName + "." + arg.saExt;
-    sa_file = fopen(sa_name.c_str(),"wb");
-    if(sa_file==NULL) die("Cannot open " + sa_name);
-  } 
+  if(arg.SAinfo) 
+    sa_file = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
   
   // main loop on the chars of the input file
   int c;
   uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are writte to the sa info file 
+  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
   // init first word in the parsing with a NUL char 
   string word("");
   word.append(1,Dollar);
@@ -304,9 +298,9 @@ void process_file(Args& arg, KR_window& krw, map<uint64_t,word_stats>& wordFreq)
   word.append(arg.w,Dollar);
   save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
   // close input and output files 
-  if(sa_file) if(fclose(sa_file)!=0) die("Error closing "+ sa_name);
-  if(fclose(last_file)!=0) die("Error closing "+ fnamelast );  
-  if(fclose(g)!=0) die("Error closing "+ fparse);
+  if(sa_file) if(fclose(sa_file)!=0) die("Error closing SA file");
+  if(fclose(last_file)!=0) die("Error closing last file");  
+  if(fclose(g)!=0) die("Error closing parse file");
   if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
   f.close();      
 }
@@ -511,7 +505,7 @@ int main(int argc, char** argv)
   time_t start_main = time(NULL);
   time_t start_wc = start_main;  
   // init window-based karp-rabin fingerprint
-  KR_window krw(arg.w); // input is window size and alphabet 
+  KR_window krw(arg.w); // constructor needs window size
   // init sorted map counting the number of occurrences of each word
   map<uint64_t,word_stats> wordFreq;  
 
