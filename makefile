@@ -44,11 +44,12 @@ pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o xerrors.o malloc_count.o
 pfbwt64.x: pfbwt.cpp pfthreads.hpp gsa/gsacak64.o utils.o xerrors.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak64.o utils.o xerrors.o malloc_count.o -pthread -ldl -DM64
 
-# TO BE REMOVED? (now pfbwt*.x work with malloc_count)
+# TO BE REMOVED? (now pfbwt*.x works with malloc_count)
 # prefix free BWT construction without threads: useful since supports malloc_count
 pfbwtNT.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
 
+# as above for large files
 pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS -DM64
 
