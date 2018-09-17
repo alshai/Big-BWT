@@ -17,6 +17,7 @@ check the correctness of the BWT by some other means (for example inverting it)
 """
 
 parse_exe = "./newscan.x"
+parseNT_exe = "./newscanNT.x"
 parsebwt_exe = "./bwtparse"
 parsebwt_exe64 = "./bwtparse64"
 pfbwt_exe = "./pfbwt.x"
@@ -52,7 +53,11 @@ def main():
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
-    command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
+    if args.t>0:
+      command = "{exe} {file} -w {wsize} -p {modulus} -t {th}".format(exe=parse_exe, 
+              wsize=args.wsize, modulus = args.mod, th=args.t, file=args.input)
+    else:
+      command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parseNT_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     print("==== Parsing. Command:", command)

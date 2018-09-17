@@ -3,7 +3,7 @@ CXX_FLAGS=-std=c++11 -O3 -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x pfbwtNT.x pfbwtNT64.x
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscanNT.x newscan.x pfbwt.x pfbwt64.x pfbwtNT.x pfbwtNT64.x
 
 # targets not producing a file declared phony
 .PHONY: all clean tarfile
@@ -31,10 +31,13 @@ simplebwt64: simplebwt.c gsa/gsacak64.o
 
 # cnewscan executable to scan gzipped files (currently not active) 
 cnewscan.x: newscan.cpp malloc_count.o utils.o
-	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl 
+	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl -DNOTHREADS
 
-newscan.x: newscan.cpp malloc_count.o utils.o
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl
+newscanNT.x: newscan.cpp malloc_count.o utils.o
+	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
+
+newscan.x: newscan.cpp malloc_count.o utils.o xerrors.o 
+	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -pthread
 
 
 # prefix free BWT construction. malloc_count not used since not compatible with -pthread
