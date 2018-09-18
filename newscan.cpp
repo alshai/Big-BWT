@@ -228,7 +228,8 @@ uint64_t kr_hash(string s) {
 // last minsize chars which is the overlap with next word  
 void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
 {
-  if(w.size() < minsize+1) return;
+  assert(pos==0 || w.size() > minsize);
+  if(w.size() <= minsize) return;
   // get the hash value and write it to the temporary parse file
   uint64_t hash = kr_hash(w);
   if(fwrite(&hash,sizeof(hash),1,tmp_parse_file)!=1) die("parse write error");
@@ -280,9 +281,8 @@ typedef struct {
 } mt_data;
 
 
-mt_data mt_parse(Args& arg,map<uint64_t,word_stats>& wordFreq, long start, long end)
+void mt_parse(Args& arg,map<uint64_t,word_stats>& wordFreq, long start, long end, mt_data *d)
 {
-  mt_data d;
   int c;
   // open input file 
   ifstream f(arg.inputFileName);
@@ -294,49 +294,49 @@ mt_data mt_parse(Args& arg,map<uint64_t,word_stats>& wordFreq, long start, long 
   f.seekg(start); // move to the begining of assigned region
   KR_window krw(arg.w);
   string word = "";
+  d->skipped = d->parsed = d->words = 0;
   if(start==0) {
-    word.append(1,Dollar);
+    word.append(1,Dollar);// no need to reach the next kr-window 
   }
   else {   // reach the next breaking point 
     while( (c = f.get()) != EOF ) {
       if(c<=Dollar) die("Invalid char found in input file. Exiting...");
-      d.skipped++;
+      d->skipped++;
+      if(start + d->skipped == end + arg.w) {f.close(); return;} 
       uint64_t hash = krw.addchar(c);
-      if(hash%arg.p==0 && d.skipped >= arg.w+1) break;
+      if(hash%arg.p==0 && d->skipped >= arg.w) break;
     }
-    if(c==EOF) {f.close(); return d;} // reached EOF without finding a breaking point  
+    if(c==EOF) {f.close(); return;} // reached EOF without finding a breaking point  
+    d->parsed = arg.w;   // the kr-window is part of the next word
+    d->skipped -= arg.w; // ... so w less chars have been skipped  
   }
-  
-  // gli skipped includono i w della finestra
-  // manca la gestione dell'aver raggiunto end
 
-  // there is some parsing to do. open output files 
-  d.parse = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
-  d.last = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
+  // there is some parsing to do: open output files 
+  d->parse = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
+  d->last = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
   if(arg.SAinfo) 
-    d.sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
+    d->sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
   
-  // do the parsing
-  uint64_t pos = start+d.skipped; // starting position in the text of the current word
+  // do the parsing:
+  uint64_t pos = start+d->skipped;  // starting position in text of current word
   while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
+    if(c<=Dollar) die("Invalid char found in input file. Exiting...");
     word.append(1,c);
     uint64_t hash = krw.addchar(c);
-    d.parsed++;
-    if(hash%arg.p==0) {
+    d->parsed++;
+    if(hash%arg.p==0 && d->parsed>arg.w) {
       // end of word, save it and write its full hash to the output file
       // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,arg.w,wordFreq,d.parse,d.last,d.sa,pos);
-      d.words++;
+      save_update_word(word,arg.w,wordFreq,d->parse,d->last,d->sa,pos);
+      d->words++;
+      if(start+d->skipped+d->parsed>=end+arg.w) {f.close(); return;}
     }    
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,d.parse,d.last,d.sa,pos);
-
+  save_update_word(word,arg.w,wordFreq,d->parse,d->last,d->sa,pos);
   // close input file and return 
   f.close();
-  return d;  
 }
 #endif
 
