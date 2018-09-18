@@ -245,7 +245,9 @@ void print_help(char** argv, Args &args) {
   cout << "Usage: " << argv[ 0 ] << " <input filename> [options]" << endl;
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
+        #ifndef NOTHREADS
         << "\t-t M\tnumber of helper threads, def. none " << endl
+        #endif
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute sampled suffix array" << endl
         << "\t-S  \tcompute full suffix array" << endl;
@@ -303,7 +305,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
    }
    #ifdef NOTHREADS
    if(arg.th!=0) {
-     cout << "The NT version do not use threads\n";
+     cout << "The NT version cannot use threads\n";
      exit(1);
    }
    #else
