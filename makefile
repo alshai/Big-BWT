@@ -36,8 +36,8 @@ cnewscan.x: newscan.cpp malloc_count.o utils.o
 newscanNT.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
 
-newscan.x: newscan.cpp malloc_count.o utils.o xerrors.o 
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -pthread
+newscan.x: newscan.cpp newscan.hpp malloc_count.o utils.o xerrors.o 
+	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -pthread
 
 
 # prefix free BWT construction. malloc_count not used since not compatible with -pthread

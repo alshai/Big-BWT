@@ -100,17 +100,8 @@ extern "C" {
 #include "utils.h"
 }
 
-
 using namespace std;
 using namespace __gnu_cxx;
-
-#ifndef NOTHREADS
-extern "C" {
-#include "xerrors.h"
-}
-pthread_mutex_t map_mutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
-
 
 
 
@@ -122,6 +113,12 @@ typedef uint32_t word_int_t;
 #define MAX_WORD_OCC (UINT32_MAX)
 typedef uint32_t occ_int_t;
 
+// values of the wordFreq map: word, its number of occurrences, and its rank
+struct word_stats {
+  string str;
+  occ_int_t occ;
+  word_int_t rank=0;
+};
 
 // -------------------------------------------------------------
 // struct containing command line parameters and other globals
@@ -137,6 +134,7 @@ struct Args {
    int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;   // compute SA information 
    int th=0;              // number of helper threads
+   int verbose=0;         // verbosity level 
 };
 
 
@@ -193,21 +191,14 @@ struct KR_window {
 };
 // -----------------------------------------------------------
 
+static void die(const string s);
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos);
 
-// values of the wordFreq map: word, its number of occurrences, and its rank
-struct word_stats {
-  string str;
-  occ_int_t occ;
-  word_int_t rank=0;
-};
-
+#ifndef NOTHREADS
+#include "newscan.hpp"
+#endif
 
 
-void die(const string s)
-{
-  perror(s.c_str());
-  exit(1);
-}
 
 // compute 64-bit KR hash of a string 
 // to avoid overflows in 64 bit aritmethic the prime is taken < 2**55
@@ -227,7 +218,7 @@ uint64_t kr_hash(string s) {
 
 // save current word in the freq map and update it leaving only the 
 // last minsize chars which is the overlap with next word  
-void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
 {
   assert(pos==0 || w.size() > minsize);
   if(w.size() <= minsize) return;
@@ -270,185 +261,6 @@ void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>& 
 }
 
 
-#ifndef NOTHREADS
-// struct returned by mt_parse
-typedef struct {
-  map<uint64_t,word_stats> *wordFreq; // shared dictionary
-  Args *arg;       // command line input 
-  long start, end; // input
-  long skipped, parsed, words;  // output
-  FILE *parse, *last, *sa;
-} mt_data;
-
-
-void *mt_parse(void *dx)
-{
-  // extract input data
-  mt_data *d = (mt_data *) dx;
-  Args *arg = d->arg;
-  map<uint64_t,word_stats> *wordFreq = d->wordFreq;
-
-  // open input file 
-  ifstream f(arg->inputFileName);
-  if(!f.is_open()) {
-    perror(__func__);
-    throw new std::runtime_error("Cannot open file " + arg->inputFileName);
-  }
-
-  // prepare for parsing 
-  f.seekg(d->start); // move to the begining of assigned region
-  KR_window krw(arg->w);
-  int c; string word = ""; 
-  d->skipped = d->parsed = d->words = 0;
-  if(d->start==0) {
-    word.append(1,Dollar);// no need to reach the next kr-window 
-  }
-  else {   // reach the next breaking point 
-    while( (c = f.get()) != EOF ) {
-      if(c<=Dollar) die("Invalid char found in input file. Exiting...");
-      d->skipped++;
-      if(d->start + d->skipped == d->end + arg->w) {f.close(); return NULL;} 
-      uint64_t hash = krw.addchar(c);
-      if(hash%arg->p==0 && d->skipped >= arg->w) break;
-    }
-    if(c==EOF) {f.close(); return NULL;} // reached EOF without finding a breaking point nothing to do   
-    d->parsed = arg->w;   // the kr-window is part of the next word
-    d->skipped -= arg->w; // ... so w less chars have been skipped  
-  }
-
-  // there is some parsing to do: open output files 
-  d->parse = open_aux_file(arg->inputFileName.c_str(),arg->parse0ext.c_str(),"wb");
-  d->last = open_aux_file(arg->inputFileName.c_str(),arg->lastExt.c_str(),"wb");  
-  if(arg->SAinfo) 
-    d->sa = open_aux_file(arg->inputFileName.c_str(),arg->saExt.c_str(),"wb");
-  
-  // do the parsing:
-  uint64_t pos = d->start+d->skipped;  // starting position in text of current word
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
-  while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) die("Invalid char found in input file. Exiting...");
-    word.append(1,c);
-    uint64_t hash = krw.addchar(c);
-    d->parsed++;
-    if(hash%arg->p==0 && d->parsed>arg->w) {
-      // end of word, save it and write its full hash to the output file
-      save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
-      d->words++;
-      if(d->start+d->skipped+d->parsed>=d->end+arg->w) {f.close(); return NULL;}
-    }    
-  }
-  // end of file reached 
-  // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(arg->w,Dollar);
-  save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
-  // close input file and return 
-  f.close();
-  return NULL;
-}
-
-
-// prefix free parse of file fnam. w is the window size, p is the modulus 
-// use a KR-hash as the word ID that is immediately written to the parse file
-uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
-{
-  // get input file size 
-  ifstream f(arg.inputFileName, std::ifstream::ate);
-  if(!f.is_open()) {
-    perror(__func__);
-    throw new std::runtime_error("Cannot open input file " +arg.inputFileName);
-  }
-  long size = f.tellg();
-  f.close();   
-
-  // prepare and execute threads 
-  assert(arg.th>0);
-  pthread_t t[arg.th];
-  mt_data td[arg.th];
-  for(int i=0;i<arg.th;i++) {
-    td[i].wordFreq = &wf;
-    td[i].arg = &arg;
-    td[i].start = i*(size/arg.th); // range start
-    td[i].end = (i+1)*(size/arg.th); // range end
-    if(td[i].end>size) td[i].end=size;
-    xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
-  }
-
-  // open the 1st pass parsing file 
-  FILE *parse = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
-  // open output file containing the char at position -(w+1) of each word
-  FILE *last = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
-  // if requested open file containing the ending position+1 of each word
-  FILE *sa = NULL;
-  if(arg.SAinfo) 
-    sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
-  
-  // wait for the threads to finish (in order) and copy data to output files
-  for(int i=0;i<arg.th;i++) {
-    char buf[BUFSIZ]; size_t size;
-    xpthread_join(t[i],NULL,__LINE__,__FILE__);
-    if(td[i].words>0) {
-      // copy parse
-      rewind(td[i].parse);
-      while ((size = fread(buf, 1, BUFSIZ, td[i].parse)))
-        fwrite(buf, 1, size, parse);
-      fclose(td[i].parse);
-      // copy last
-      rewind(td[i].last);
-      while ((size = fread(buf, 1, BUFSIZ, td[i].last)))
-        fwrite(buf, 1, size, last);
-      fclose(td[i].last);
-      if(arg.SAinfo) {
-      // copy parse
-      rewind(td[i].sa);
-        while ((size = fread(buf, 1, BUFSIZ, td[i].sa)))
-          fwrite(buf, 1, size, sa);
-        fclose(td[i].sa);
-      }
-    }
-  }
-  
-  
-  
-  
-#if 0  
-  // main loop on the chars of the input file
-  int c;
-  uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
-  // init first word in the parsing with a Dollar char 
-  string word("");
-  word.append(1,Dollar);
-  // init empty KR window: constructor only needs window size
-  KR_window krw(arg.w);
-  while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-    word.append(1,c);
-    uint64_t hash = krw.addchar(c);
-    if(hash%arg.p==0) {
-      // end of word, save it and write its full hash to the output file
-      // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-    }    
-  }
-  // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-  // close input and output files 
-  if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
-  f.close();
-  return krw.tot_char;
-#endif
-
-  // close output files 
-  if(sa_file) if(fclose(sa_file)!=0) die("Error closing SA file");
-  if(fclose(last_file)!=0) die("Error closing last file");  
-  if(fclose(g)!=0) die("Error closing parse file");
-  return size; 
-}
-
-
-
-#endif
 
 // prefix free parse of file fnam. w is the window size, p is the modulus 
 // use a KR-hash as the word ID that is immediately written to the parse file
@@ -597,7 +409,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:sht:") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:sht:v") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
@@ -610,6 +422,8 @@ void parseArgs( int argc, char** argv, Args& arg ) {
         case 't':
         sarg.assign( optarg );
         arg.th = stoi( sarg ); break;
+        case 'v':
+           arg.verbose++; break;
         case 'h':
            print_help(argv, arg); exit(1);
         case '?':
@@ -724,5 +538,11 @@ int main(int argc, char** argv)
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   cout << "==== Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
+}
+
+static void die(const string s)
+{
+  perror(s.c_str());
+  exit(1);
 }
 
