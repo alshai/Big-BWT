@@ -3,13 +3,15 @@ CXX_FLAGS=-std=c++11 -O3 -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscanNT.x newscan.x pfbwt.x pfbwt64.x pfbwtNT.x pfbwtNT64.x
+# main executables 
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x 
+# executables not usibg threads (and not needing the thread library)
+EXECS_NT=newscanNT.x pfbwtNT.x  pfbwtNT64.x
 
 # targets not producing a file declared phony
 .PHONY: all clean tarfile
 
-all: $(EXECS) 
-
+all: $(EXECS) $(EXECS_NT)
 
 gsa/gsacak.o: gsa/gsacak.c gsa/gsacak.h
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -60,7 +62,7 @@ pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.cpp newscan.hpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
-	rm -f $(EXECS) *.o gsa/*.o
+	rm -f $(EXECS) $(EXECS_NT) *.o gsa/*.o
