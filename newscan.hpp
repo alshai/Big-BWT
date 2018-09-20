@@ -20,7 +20,8 @@ void *mt_parse(void *dx)
   Args *arg = d->arg;
   map<uint64_t,word_stats> *wordFreq = d->wordFreq;
 
-  cout << "Range: " << d->start << "," << d->end << "\n";
+  if(arg->verbose>1)
+    printf("Scanning from %ld, size %ld\n",d->start,d->end-d->start);
 
   // open input file 
   ifstream f(arg->inputFileName);
@@ -51,13 +52,12 @@ void *mt_parse(void *dx)
     d->skipped -= arg->w; // ... so w less chars have been skipped
     word.erase(0,word.size() - arg->w);// keep only the last w chars 
   }
-  cout << "Skipped: " << d->skipped << endl;
+  // cout << "Skipped: " << d->skipped << endl;
   
   // there is some parsing to do: open output files 
-  d->parse = open_aux_file(arg->inputFileName.c_str(),arg->parse0ext.c_str(),"wb");
-  d->last = open_aux_file(arg->inputFileName.c_str(),arg->lastExt.c_str(),"wb");  
-  if(arg->SAinfo) 
-    d->sa = open_aux_file(arg->inputFileName.c_str(),arg->saExt.c_str(),"wb");
+  d->parse = tmpfile();
+  d->last = tmpfile();
+  if(arg->SAinfo) d->sa = tmpfile();
   else d->sa = NULL;
   
   // do the parsing:
@@ -86,7 +86,7 @@ void *mt_parse(void *dx)
 
 
 // prefix free parse of file fnam. w is the window size, p is the modulus 
-// use a KR-hash as the word ID that is immediately written to the parse file
+// use a KR-hash as the word ID that is written to the parse file
 uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
 {
   // get input file size 
@@ -106,8 +106,8 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
     td[i].wordFreq = &wf;
     td[i].arg = &arg;
     td[i].start = i*(size/arg.th); // range start
-    td[i].end = (i+1)*(size/arg.th); // range end
-    if(td[i].end>size) td[i].end=size;
+    td[i].end = (i+1==arg.th) ? size : (i+1)*(size/arg.th); // range end
+    assert(td[i].end<=size);
     xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
   }
 
@@ -121,11 +121,14 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
     sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
   
   // wait for the threads to finish (in order) and copy data to output files
+  long tot_char=0;
   for(int i=0;i<arg.th;i++) {
     char buf[BUFSIZ]; size_t size;
     xpthread_join(t[i],NULL,__LINE__,__FILE__);
-    cout << "<--- " << td[i].start << "," << td[i].end << "  ";
-    cout << td[i].parsed << " " << td[i].skipped << " " << td[i].words << endl;
+    if(arg.verbose) {
+      cout << "s:" << td[i].start << "  e:" << td[i].end << "  pa:";
+      cout << td[i].parsed << "  sk:" << td[i].skipped << "  wo:" << td[i].words << endl;
+    }
     if(td[i].words>0) {
       // copy parse
       rewind(td[i].parse);
@@ -144,45 +147,18 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
           fwrite(buf, 1, size, sa);
         fclose(td[i].sa);
       }
+      // extra check
+      assert(td[i].parsed>arg.w);
+      tot_char += td[i].parsed - (i!=0? arg.w: 0); //parsed - overlapping 
     }
+    else assert(i>0); // the first thread must produce some words
   }
-  
+  assert(tot_char==size);
   // close output files 
   if(sa) if(fclose(sa)!=0) die("Error closing SA file");
   if(fclose(last)!=0) die("Error closing last file");  
   if(fclose(parse)!=0) die("Error closing parse file");
-  return size; 
-  
-  
-  
-#if 0  
-  // main loop on the chars of the input file
-  int c;
-  uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
-  // init first word in the parsing with a Dollar char 
-  string word("");
-  word.append(1,Dollar);
-  // init empty KR window: constructor only needs window size
-  KR_window krw(arg.w);
-  while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-    word.append(1,c);
-    uint64_t hash = krw.addchar(c);
-    if(hash%arg.p==0) {
-      // end of word, save it and write its full hash to the output file
-      // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-    }    
-  }
-  // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-  // close input and output files 
-  if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
-  f.close();
-  return krw.tot_char;
-#endif
+  return size;   
 }
 
 
