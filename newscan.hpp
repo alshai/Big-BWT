@@ -3,7 +3,7 @@ extern "C" {
 }
 pthread_mutex_t map_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// struct returned by mt_parse
+// struct shared via mt_parse
 typedef struct {
   map<uint64_t,word_stats> *wordFreq; // shared dictionary
   Args *arg;       // command line input 
@@ -54,13 +54,7 @@ void *mt_parse(void *dx)
   }
   // cout << "Skipped: " << d->skipped << endl;
   
-  // there is some parsing to do: open output files 
-  d->parse = tmpfile();
-  d->last = tmpfile();
-  if(arg->SAinfo) d->sa = tmpfile();
-  else d->sa = NULL;
-  
-  // do the parsing:
+  // there is some parsing to do
   uint64_t pos = d->start+d->skipped;  // starting position in text of current word
   assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
   while( (c = f.get()) != EOF ) {
@@ -108,9 +102,16 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
     td[i].start = i*(size/arg.th); // range start
     td[i].end = (i+1==arg.th) ? size : (i+1)*(size/arg.th); // range end
     assert(td[i].end<=size);
+    // open the 1st pass parsing file 
+    td[i].parse = open_aux_file_num(arg.inputFileName.c_str(),arg.parse0ext.c_str(),i,"wb");
+    // open output file containing the char at position -(w+1) of each word
+    td[i].last = open_aux_file_num(arg.inputFileName.c_str(),arg.lastExt.c_str(),i,"wb");  
+    // if requested open file containing the ending position+1 of each word
+    td[i].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),arg.saExt.c_str(),i,"wb") : NULL;
     xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
   }
 
+#if 0
   // open the 1st pass parsing file 
   FILE *parse = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
   // open output file containing the char at position -(w+1) of each word
@@ -119,34 +120,20 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
   FILE *sa = NULL;
   if(arg.SAinfo) 
     sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
+#endif
   
-  // wait for the threads to finish (in order) and copy data to output files
+  // wait for the threads to finish (in order) and close output files
   long tot_char=0;
   for(int i=0;i<arg.th;i++) {
-    char buf[BUFSIZ]; size_t size;
     xpthread_join(t[i],NULL,__LINE__,__FILE__);
     if(arg.verbose) {
       cout << "s:" << td[i].start << "  e:" << td[i].end << "  pa:";
       cout << td[i].parsed << "  sk:" << td[i].skipped << "  wo:" << td[i].words << endl;
     }
+    fclose(td[i].parse);
+    fclose(td[i].last);
+    if(td[i].sa) fclose(td[i].sa);
     if(td[i].words>0) {
-      // copy parse
-      rewind(td[i].parse);
-      while ((size = fread(buf, 1, BUFSIZ, td[i].parse)))
-        fwrite(buf, 1, size, parse);
-      fclose(td[i].parse);
-      // copy last
-      rewind(td[i].last);
-      while ((size = fread(buf, 1, BUFSIZ, td[i].last)))
-        fwrite(buf, 1, size, last);
-      fclose(td[i].last);
-      if(arg.SAinfo) {
-      // copy parse
-      rewind(td[i].sa);
-        while ((size = fread(buf, 1, BUFSIZ, td[i].sa)))
-          fwrite(buf, 1, size, sa);
-        fclose(td[i].sa);
-      }
       // extra check
       assert(td[i].parsed>arg.w);
       tot_char += td[i].parsed - (i!=0? arg.w: 0); //parsed - overlapping 
@@ -155,9 +142,11 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
   }
   assert(tot_char==size);
   // close output files 
+  #if 0
   if(sa) if(fclose(sa)!=0) die("Error closing SA file");
   if(fclose(last)!=0) die("Error closing last file");  
   if(fclose(parse)!=0) die("Error closing parse file");
+  #endif
   return size;   
 }
 

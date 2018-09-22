@@ -357,14 +357,23 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
 
 void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
 {
-  // open parse files 
-  FILE *oldp = open_aux_file(arg.inputFileName.c_str(), arg.parse0ext.c_str(), "rb"); 
+  mFile *moldp=NULL; FILE *oldp=NULL;  
+  // open parse files. the old parse can be stored in a single file or in multiple files
+  if(arg.th==0)  
+    oldp = open_aux_file(arg.inputFileName.c_str(), arg.parse0ext.c_str(), "rb"); 
+  else
+    moldp = mopen_aux_file(arg.inputFileName.c_str(), arg.parse0ext.c_str(), arg.th);
   FILE *newp = open_aux_file(arg.inputFileName.c_str(), arg.parseExt.c_str(), "wb");
+
   // recompute occ as an extra check 
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
   uint64_t hash;
-  while(!feof(oldp)) {
-    size_t s = fread(&hash,sizeof(hash),1,oldp);
+  size_t s;
+  while(true) {
+    if(arg.th==0)
+      s = fread(&hash,sizeof(hash),1,oldp);
+    else 
+      s = mfread(&hash,sizeof(hash),1,moldp);
     if(s==0) break;
     if(s!=1) die("Unexpected parse EOF");
     word_int_t rank = wfreq.at(hash).rank;
@@ -373,7 +382,11 @@ void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
     if(s!=1) die("Error writing to new parse file");
   }
   if(fclose(newp)!=0) die("Error closing new parse file");
-  if(fclose(oldp)!=0) die("Error closing old_ parse file");
+  if(arg.th==0) {
+    if(fclose(oldp)!=0) die("Error closing old parse file");
+  } else {
+    if(mfclose(moldp)!=0) die("Error closing old parse segment");
+  }
   // check old and recomputed occ coincide 
   for(auto& x : wfreq)
     assert(x.second.occ == occ[x.second.rank]);
