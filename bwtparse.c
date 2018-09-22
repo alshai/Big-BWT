@@ -62,6 +62,7 @@ typedef uint_t sa_index_t;
 typedef struct {
    char *basename;
    bool SAinfo;
+   int th;    // number of segments for the last and sa files
 } Args;
 
 
@@ -138,12 +139,15 @@ static void parseArgs(int argc, char** argv, Args *arg ) {
   puts("");
 
   arg->SAinfo = false;
-  while ((c = getopt( argc, argv, "sh") ) != -1) {
+  arg->th = 0;
+  while ((c = getopt( argc, argv, "sht:") ) != -1) {
     switch(c) {
       case 's':
       arg->SAinfo = true; break;
       case 'h':
          print_help(argv[0]); exit(1);
+      case 't':
+         arg->th = atoi(optarg); break;
       case '?':
       puts("Unknown option. Use -h for help.");
       exit(1);
@@ -173,16 +177,17 @@ static sa_index_t *compute_SA(uint32_t *Text, long n, long k)
   return SA;
 }
 
+// load the last array produced by newscan into an array
 static uint8_t *load_last(Args *arg, long n)
 {  
-  // open .last file for reading and .bwlast for writing
-  FILE *lastin = open_aux_file(arg->basename,EXTLST,"rb");
+  // open .last file for reading
+  mFile *lastin = mopen_aux_file(arg->basename,EXTLST,arg->th);
   // allocate and load the last array
   uint8_t *last = malloc(n);
   if(last==NULL) die("malloc failed (LAST)"); 
-  size_t s = fread(last,1,n,lastin);
+  size_t s = mfread(last,1,n,lastin);
   if(s!=n) die("last read");
-  if(fclose(lastin)!=0) die("last file close");
+  if(mfclose(lastin)!=0) die("last file close");
   return last;
 }
 
@@ -192,13 +197,13 @@ static uint8_t *load_sa_info(Args *arg, long n)
   // maybe sa info was not required 
   if(arg->SAinfo==false) return NULL;
   // open .sa_info file for reading and .bwlast for writing
-  FILE *fin = open_aux_file(arg->basename,EXTSAI,"rb");
+  mFile *fin = mopen_aux_file(arg->basename,EXTSAI,arg->th);
   // allocate and load the sa info array
   uint8_t *sai = malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (SA INFO)"); 
-  size_t s = fread(sai,IBYTES,n,fin);
+  size_t s = mfread(sai,IBYTES,n,fin);
   if(s!=n) die("sa info read");
-  if(fclose(fin)!=0) die("sa info file close");
+  if(mfclose(fin)!=0) die("sa info file close");
   return sai;
 }
 

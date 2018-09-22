@@ -53,7 +53,7 @@ FILE *open_aux_file_num(const char *base, const char *ext, const int num, const 
 
 // ------ functions handling file consisting of multiple segments 
 
-// open multiple file 
+// open multiple file for reading. If nsegs==0 then it is a single fle  
 mFile *mopen_aux_file(const char *base, const char *ext, int nsegs)
 {
   mFile *f = malloc(sizeof(mFile));
@@ -62,7 +62,11 @@ mFile *mopen_aux_file(const char *base, const char *ext, int nsegs)
   f->ext = strdup(ext);
   f->nsegs = nsegs;
   f->cur = 0;
-  f->f = open_aux_file_num(f->base, f->ext, f->cur,"rb");
+  if(nsegs==0)
+    f->f = open_aux_file(f->base, f->ext,"rb");
+  else  
+    f->f = open_aux_file_num(f->base, f->ext, f->cur,"rb");
+  if(f->f==NULL) die("Error opening multiple file");
   return f;
 }
 
@@ -75,19 +79,28 @@ int mfclose(mFile *f) {
   return fclose(aux);
 }
 
+// function analogous to fread for a file splitted into segments
 size_t mfread(void *ptr, size_t size, size_t nmemb, mFile *f)
 {
   // try reading from current file
+  size_t read = 0;
   while(1) {
-    size_t s = fread(ptr,size,nmemb,f->f);
-    if(s==nmemb) return s;
-    if(s!=0) die(__func__); // a partial reading should never occur
-    if(++f->cur==f->nsegs) return 0; // we are at the last segment
-    if(fclose(f->f)!=0) die("Error closing old parse segment");
-    f->f = open_aux_file_num(f->base, f->ext, f->cur,"rb");
+    size_t s = fread(ptr+read*size,size,nmemb,f->f);
+    assert(s<=nmemb);
+    if(s==0) {
+      if(ferror(f->f)) die("Error reading file segment");
+      if(++f->cur>=f->nsegs) return read; //no more files: return the items actully read
+      if(fclose(f->f)!=0) die("Error closing file segment");
+      f->f = open_aux_file_num(f->base, f->ext, f->cur,"rb");
+      if(f->f==NULL) die("Error opening new file segment");
+    }
+    else {
+      read += s;
+      nmemb -=s;
+      if(nmemb==0) break; 
+    }
   }
-  assert(0);
-  return 0;
+  return read;
 }
 
 

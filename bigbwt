@@ -78,6 +78,7 @@ def main():
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
+    if (args.t>0): command += " -t " + str(args.t)
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -123,13 +124,21 @@ def main():
     # ---- delete intermediate files
     if args.k==False:
       print("==== Deleting temporary files.") # no need to show the command
-      command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
+      command = "rm -f {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input)
       if(execute_command(command,logfile,logfile_name)!=True):
         return
-      if args.s or args.S:
-        command = "rm {file}.sai {file}.bwsai".format(file=args.input);
+      for i in range(args.t):
+        command = "rm -f {file}.{i}.parse_old {file}.{i}.last".format(file=args.input, i=i)
         if(execute_command(command,logfile,logfile_name)!=True):
           return
+      if args.s or args.S:
+        command = "rm -f {file}.sai {file}.bwsai".format(file=args.input);
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
+        for i in range(args.t):
+          command = "rm -f {file}.{i}.sai".format(file=args.input, i=i)
+          if(execute_command(command,logfile,logfile_name)!=True):
+            return
 
     # --- start checking ---
     if args.c:
