@@ -80,10 +80,11 @@ int mfclose(mFile *f) {
 }
 
 // function analogous to fread for a file splitted into segments
-size_t mfread(void *ptr, size_t size, size_t nmemb, mFile *f)
+size_t mfread(void *vptr, size_t size, size_t nmemb, mFile *f)
 {
   // try reading from current file
   size_t read = 0;
+  char *ptr = vptr;
   while(1) {
     size_t s = fread(ptr+read*size,size,nmemb,f->f);
     assert(s<=nmemb);

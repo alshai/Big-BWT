@@ -41,7 +41,7 @@ def main():
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-c',  help='check BWT',action='store_true')
   parser.add_argument('--sum', help='compute output files shasum',action='store_true')
-  #parser.add_argument('-v',  help='verbose',action='store_true')
+  parser.add_argument('-v',  help='verbose',action='store_true')
   args = parser.parse_args()
   if(args.S and (args.s or args.e)):
     print("You can either compute the full SA or a sample of it, not both. Exiting...")
@@ -60,6 +60,7 @@ def main():
       command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parseNT_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
+    if (args.v): command += " -v"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return

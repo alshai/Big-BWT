@@ -38,7 +38,7 @@ void *mt_parse(void *dx)
   if(d->start==0) {
     word.append(1,Dollar);// no need to reach the next kr-window 
   }
-  else {   // reach the next breaking point 
+  else {   // reach the next breaking window  
     while( (c = f.get()) != EOF ) {
       if(c<=Dollar) die("Invalid char found in input file. Exiting...");
       d->skipped++;
@@ -55,7 +55,8 @@ void *mt_parse(void *dx)
   // cout << "Skipped: " << d->skipped << endl;
   
   // there is some parsing to do
-  uint64_t pos = d->start+d->skipped;  // starting position in text of current word
+  uint64_t pos = d->start;             // ending position+1 in text of previous word
+  if(pos>0) pos+= d->skipped+ arg->w;  // or 0 for the first word  
   assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
   while( (c = f.get()) != EOF ) {
     if(c<=Dollar) die("Invalid char found in input file. Exiting...");
@@ -64,6 +65,7 @@ void *mt_parse(void *dx)
     d->parsed++;
     if(hash%arg->p==0 && d->parsed>arg->w) {
       // end of word, save it and write its full hash to the output file
+      // pos is the ending position+1 of previous word and is updated in the next call
       save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
       d->words++;
       if(d->start+d->skipped+d->parsed>=d->end+arg->w) {f.close(); return NULL;}

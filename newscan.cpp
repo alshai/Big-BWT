@@ -253,6 +253,7 @@ static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_s
   // output char w+1 from the end
   if(fputc(w[w.size()- minsize-1],last)==EOF) die("Error writing to .last file");
   // compute ending position +1 of current word and write it to sa file 
+  // pos is the ending position+1 of the previous word and is updated here 
   if(pos==0) pos = w.size()-1; // -1 is for the initial $ of the first word
   else pos += w.size() -minsize; 
   if(sa) if(fwrite(&pos,IBYTES,1,sa)!=1) die("Error writing to sa info file");
@@ -289,7 +290,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   
   // main loop on the chars of the input file
   int c;
-  uint64_t pos = 0; // ending position +1 of current word in the original text, used for computing sa_info 
+  uint64_t pos = 0; // ending position +1 of previous word in the original text, used for computing sa_info 
   assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
   // init first word in the parsing with a Dollar char 
   string word("");
