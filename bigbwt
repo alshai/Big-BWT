@@ -39,9 +39,10 @@ def main():
   parser.add_argument('-e',  help='compute the end run-length sampled Suffix Array',action='store_true')
   parser.add_argument('-S',  help='compute the full Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
-  parser.add_argument('-c',  help='check BWT',action='store_true')
-  parser.add_argument('--sum', help='compute output files shasum',action='store_true')
   parser.add_argument('-v',  help='verbose',action='store_true')
+  parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
+  parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
+  parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   args = parser.parse_args()
   if(args.S and (args.s or args.e)):
     print("You can either compute the full SA or a sample of it, not both. Exiting...")
@@ -64,7 +65,18 @@ def main():
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
-    print("Elapsed time: {0:.4f}".format(time.time()-start))      
+    print("Elapsed time: {0:.4f}".format(time.time()-start))
+    if args.parsing:
+      # save parsing files 
+      start = time.time()
+      command = "tar -cJf {file}.parse.{wsize}.txz {file}.parse {file}.dict".format( 
+              wsize=args.wsize, file=args.input)
+      print("==== Saving. Command:", command)
+      if(execute_command(command,logfile,logfile_name)!=True): return
+      print("Elapsed time: {0:.4f}".format(time.time()-start))
+      delete_temp_files(args,logfile,logfile_name)
+      print("==== Stopping after the parsing phase as requested")
+      return
 
     # ----------- computation of the BWT of the parsing
     start = time.time()
@@ -89,12 +101,12 @@ def main():
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
       # 64 bit version with and without threads
-      if args.t>0:
+      if args.t>0 and args.s==False and args.e==False:
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
     else:  # 32 bit version
-      if args.t>0:
+      if args.t>0 and args.s==False and args.e==False:
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
@@ -123,23 +135,7 @@ def main():
         print("ESA {exe}: {digest}".format(exe=shasum_exe, digest=digest))
  
     # ---- delete intermediate files
-    if args.k==False:
-      print("==== Deleting temporary files.") # no need to show the command
-      command = "rm -f {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input)
-      if(execute_command(command,logfile,logfile_name)!=True):
-        return
-      for i in range(args.t):
-        command = "rm -f {file}.{i}.parse_old {file}.{i}.last".format(file=args.input, i=i)
-        if(execute_command(command,logfile,logfile_name)!=True):
-          return
-      if args.s or args.S:
-        command = "rm -f {file}.sai {file}.bwsai".format(file=args.input);
-        if(execute_command(command,logfile,logfile_name)!=True):
-          return
-        for i in range(args.t):
-          command = "rm -f {file}.{i}.sai".format(file=args.input, i=i)
-          if(execute_command(command,logfile,logfile_name)!=True):
-            return
+    delete_temp_files(args,logfile,logfile_name)
 
     # --- start checking ---
     if args.c:
@@ -161,6 +157,27 @@ def main():
     # --- end checking ---
 
   print("==== Done")
+
+# delete intermediate files
+def delete_temp_files(args,logfile,logfile_name):
+    if args.k==False:  
+      print("==== Deleting temporary files.") # no need to show the command
+      command = "rm -f {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input)
+      if(execute_command(command,logfile,logfile_name)!=True):
+        return
+      for i in range(args.t):
+        command = "rm -f {file}.{i}.parse_old {file}.{i}.last".format(file=args.input, i=i)
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
+      if args.s or args.S:
+        command = "rm -f {file}.sai {file}.bwsai".format(file=args.input);
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
+        for i in range(args.t):
+          command = "rm -f {file}.{i}.sai".format(file=args.input, i=i)
+          if(execute_command(command,logfile,logfile_name)!=True):
+            return
+
 
 # compute hash digest for a file 
 def file_digest(name,logfile):

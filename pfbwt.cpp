@@ -1,7 +1,7 @@
 /* **************************************************************************
  * pfbwt.cpp
  * Output the BWT, the SA (option -S) or the sampled SA (option -s)
- * computed using the prefix-free aprsng technique
+ * computed using the prefix-free parsing technique
  *  
  * Usage:
  *   pfbwt[NT][64].x -h

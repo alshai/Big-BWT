@@ -91,7 +91,7 @@ def main():
           raise "SA file too long"
       if len(bwt.read(1))>0:
           raise "BWT file too long"
-  # show digest is requested         
+  # show digest if requested         
   if args.sum:
     digest = file_digest(outname)
     short = "ESA" if args.e else "SSA"            
