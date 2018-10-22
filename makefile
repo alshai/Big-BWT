@@ -4,8 +4,8 @@ CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
 # main executables 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x 
-# executables not usibg threads (and not needing the thread library)
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x unparse
+# executables not using threads (and therefore not needing the thread library)
 EXECS_NT=newscanNT.x pfbwtNT.x  pfbwtNT64.x
 
 # targets not producing a file declared phony
@@ -57,6 +57,9 @@ pfbwtNT.x: pfbwt.cpp gsa/gsacak.o utils.o malloc_count.o
 # as above for large files
 pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS -DM64
+
+unparse: unparse.c utils.o malloc_count.o
+	$(CC) $(CFLAGS) -o $@ $^ -ldl
 
 %.o: %.c %.h
 	$(CC) $(CFLAGS) -c -o $@ $<
