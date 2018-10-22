@@ -65,7 +65,7 @@ unparse: unparse.c utils.o malloc_count.o
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp newscan.hpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.cpp newscan.hpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c unparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
 	rm -f $(EXECS) $(EXECS_NT) *.o gsa/*.o

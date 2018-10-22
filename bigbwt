@@ -43,6 +43,7 @@ def main():
   parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
   parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
+  parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
   args = parser.parse_args()
   if(args.S and (args.s or args.e)):
     print("You can either compute the full SA or a sample of it, not both. Exiting...")
@@ -67,6 +68,13 @@ def main():
       return
     print("Elapsed time: {0:.4f}".format(time.time()-start))
     if args.parsing:
+      # delete temporary parsing files 
+      command = "rm -f {file}.parse_old {file}.last {file}.occ".format(file=args.input)
+      if(execute_command(command,logfile,logfile_name)!=True):
+        return
+      print("==== Stopping after the parsing phase as requested")      
+      return
+    elif args.compress:
       # save parsing files 
       start = time.time()
       command = "tar -cJf {file}.parse.{wsize}.txz {file}.parse {file}.dict".format( 
@@ -75,7 +83,7 @@ def main():
       if(execute_command(command,logfile,logfile_name)!=True): return
       print("Elapsed time: {0:.4f}".format(time.time()-start))
       delete_temp_files(args,logfile,logfile_name)
-      print("==== Stopping after the parsing phase as requested")
+      print("==== Done: Parsing output xz-compressed as requested")
       return
 
     # ----------- computation of the BWT of the parsing
