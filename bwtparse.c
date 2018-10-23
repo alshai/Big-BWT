@@ -15,14 +15,14 @@
 // If the -s option is used, also remap the sa values in the .sai 
 // file (that uses IBYTES bytes per entry) producing the .bwsai file
 
-// The remapping is done as follows, let T[0] T[1] ... T[n-1] T[n]
-// the input parse with T[n]=0 is an extra EOS symbol added here   
+// The remapping is done as follows, let T[0] T[1] ... T[n-1] T[n] denote
+// the input parse where T[n]=0 is an extra EOS symbol added here   
 // For j=0,...,n, if BWT[j] = T[i] then:
 //   bwisa[j]  is the ending position+1 of T[i] in the original text 
 //   bwlast[j] is the char immediately before T[i] in the original text,
 //             ie the char in position w from the end of T[i-1]
-// Since T[n]=0, and T[0] = $abc... is the only phrase starting with $ so T[n]<T[0]<T[i]
-// it is BWT[0]=T[n-1] and BWT[1]=T[n]=0. We have 
+// Since T[n]=0, and T[0] = $abc... is the only phrase starting with $, 
+// it is T[n]<T[0]<T[i] and BWT[0]=T[n-1], BWT[1]=T[n]=0. We have 
 //   bwisa[0]  = ending position + 1 of T[n-1], 
 //   bwlast[0] = char in position w from the end of T[n-2]
 //   bwisa[1] and bwlast[1] are dummy values since T[n] is not a real phrase
@@ -62,6 +62,7 @@ typedef uint_t sa_index_t;
 typedef struct {
    char *basename;
    bool SAinfo;
+   int th;    // number of segments for the last and sa files
 } Args;
 
 
@@ -135,29 +136,27 @@ static void parseArgs(int argc, char** argv, Args *arg ) {
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
     printf(" %s",argv[i]);
-  puts("");
+  puts("\n");
 
   arg->SAinfo = false;
-  while ((c = getopt( argc, argv, "sh") ) != -1) {
+  arg->th = 0;
+  while ((c = getopt( argc, argv, "sht:") ) != -1) {
     switch(c) {
       case 's':
       arg->SAinfo = true; break;
       case 'h':
          print_help(argv[0]); exit(1);
+      case 't':
+         arg->th = atoi(optarg); break;
       case '?':
       puts("Unknown option. Use -h for help.");
       exit(1);
     }
   }
-
-  arg->basename = NULL;
-  if (argc == optind+1) {
-    arg->basename = argv[optind];
-  }
-  if (argc>optind+1) {
-    puts("Commandline error: A single input parameter is allowed");
+  // read base name as the only non-option parameter 
+  if (argc!=optind+1)
     print_help(argv[0]);
-  }
+  arg->basename = argv[optind];
 }
 
 static sa_index_t *compute_SA(uint32_t *Text, long n, long k) 
@@ -173,16 +172,17 @@ static sa_index_t *compute_SA(uint32_t *Text, long n, long k)
   return SA;
 }
 
+// load the last array produced by newscan into an array
 static uint8_t *load_last(Args *arg, long n)
 {  
-  // open .last file for reading and .bwlast for writing
-  FILE *lastin = open_aux_file(arg->basename,EXTLST,"rb");
+  // open .last file for reading
+  mFile *lastin = mopen_aux_file(arg->basename,EXTLST,arg->th);
   // allocate and load the last array
   uint8_t *last = malloc(n);
   if(last==NULL) die("malloc failed (LAST)"); 
-  size_t s = fread(last,1,n,lastin);
+  size_t s = mfread(last,1,n,lastin);
   if(s!=n) die("last read");
-  if(fclose(lastin)!=0) die("last file close");
+  if(mfclose(lastin)!=0) die("last file close");
   return last;
 }
 
@@ -192,13 +192,13 @@ static uint8_t *load_sa_info(Args *arg, long n)
   // maybe sa info was not required 
   if(arg->SAinfo==false) return NULL;
   // open .sa_info file for reading and .bwlast for writing
-  FILE *fin = open_aux_file(arg->basename,EXTSAI,"rb");
+  mFile *fin = mopen_aux_file(arg->basename,EXTSAI,arg->th);
   // allocate and load the sa info array
   uint8_t *sai = malloc(n*IBYTES);
   if(sai==NULL) die("malloc failed (SA INFO)"); 
-  size_t s = fread(sai,IBYTES,n,fin);
+  size_t s = mfread(sai,IBYTES,n,fin);
   if(s!=n) die("sa info read");
-  if(fclose(fin)!=0) die("sa info file close");
+  if(mfclose(fin)!=0) die("sa info file close");
   return sai;
 }
 
@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
 
   // read arguments 
   parseArgs(argc,argv,&arg);
-  // start measuring wall clcokc time 
+  // start measuring wall clock time 
   time_t start_wc = time(NULL);
   // read parse file
   Text = read_parse(arg.basename,&n);

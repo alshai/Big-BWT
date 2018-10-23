@@ -18,6 +18,7 @@ check the correctness of the BWT by some other means (for example inverting it)
 
 dirname = os.path.dirname(os.path.abspath(__file__))
 parse_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "newscan.x")
+parseNT_exe     =  "/usr/bin/time -v " + os.path.join(dirname, "newscanNT.x")
 parsebwt_exe    =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse")
 parsebwt_exe64  =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse64")
 pfbwt_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwt.x")
@@ -35,28 +36,59 @@ def main():
   parser.add_argument('-w', '--wsize', help='sliding window size (def. 10)', default=10, type=int)
   parser.add_argument('-p', '--mod', help='hash modulus (def. 100)', default=100, type=int)
   parser.add_argument('-t', help='number of helper threads (def. None)', default=0, type=int)
-  parser.add_argument('-s',  help='compute the run-length sampled Suffix Array',action='store_true')
+  parser.add_argument('-s',  help='compute the start run-length sampled Suffix Array',action='store_true')
+  parser.add_argument('-e',  help='compute the end run-length sampled Suffix Array',action='store_true')
   parser.add_argument('-S',  help='compute the full Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
-  parser.add_argument('-c',  help='check BWT',action='store_true')
+  parser.add_argument('-v',  help='verbose',action='store_true')
+  parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
   parser.add_argument('-f', help='read fasta',action='store_true')
-  parser.add_argument('--sum', help='compute output files shasum',action='store_true')
-  #parser.add_argument('-v',  help='verbose',action='store_true')
+  parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
+  parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
+  parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
   args = parser.parse_args()
+  if(args.S and (args.s or args.e)):
+    print("You can either compute the full SA or a sample of it, not both. Exiting...")
+    return
+    
   logfile_name = args.input + ".log"
   print("Sending logging messages to file:", logfile_name)
   with open(logfile_name,"a") as logfile:  
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
-    command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parse_exe, 
+    if args.t>0:
+      command = "{exe} {file} -w {wsize} -p {modulus} -t {th}".format(exe=parse_exe, 
+              wsize=args.wsize, modulus = args.mod, th=args.t, file=args.input)
+    else:
+      command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parseNT_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.S): command += " -s"
     if args.f: command += " -f"
+    if (args.v): command += " -v"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
-    print("Elapsed time: {0:.4f}".format(time.time()-start))      
+    print("Elapsed time: {0:.4f}".format(time.time()-start))
+    if args.parsing:
+      # delete temporary parsing files 
+      command = "rm -f {file}.parse_old {file}.last {file}.occ".format(file=args.input)
+      if(execute_command(command,logfile,logfile_name)!=True):
+        return
+      print("==== Stopping after the parsing phase as requested")      
+      return
+    elif args.compress:
+      # save parsing files 
+      start = time.time()
+      command = "tar -cJf {file}.parse.{wsize}.txz {file}.parse {file}.dict".format( 
+              wsize=args.wsize, file=args.input)
+      print("==== Compressing. Command:", command)
+      if(execute_command(command,logfile,logfile_name,env={"XZ_OPT":"-9"})!=True): 
+        return
+      print("Elapsed time: {0:.4f}".format(time.time()-start))
+      delete_temp_files(args,logfile,logfile_name)
+      print("==== Done: Parsing output xz-compressed as requested")
+      return
 
     # ----------- computation of the BWT of the parsing
     start = time.time()
@@ -70,7 +102,8 @@ def main():
       command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
     else:
       command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
-    if (args.s or args.S): command += " -s"
+    if (args.s or args.e or args.S): command += " -s"
+    if (args.t>0): command += " -t " + str(args.t)
     print("==== Computing BWT of parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -80,17 +113,18 @@ def main():
     start = time.time()     
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
       # 64 bit version with and without threads
-      if args.t>0:
+      if args.t>0 and args.s==False and args.e==False:
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
     else:  # 32 bit version
-      if args.t>0:
+      if args.t>0 and args.s==False and args.e==False:
         command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
       else:
         command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
     if args.s: command += " -s"
-    elif args.S: command += " -S"
+    if args.e: command += " -e"
+    if args.S: command += " -S"
     
     print("==== Computing final BWT. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
@@ -105,20 +139,15 @@ def main():
       if args.S:
         digest = file_digest(args.input +".sa",logfile)
         print("SA  {exe}: {digest}".format(exe=shasum_exe, digest=digest))
-      elif args.s:
+      if args.s:
         digest = file_digest(args.input +".ssa",logfile)
         print("SSA {exe}: {digest}".format(exe=shasum_exe, digest=digest))
+      if args.e:
+        digest = file_digest(args.input +".esa",logfile)
+        print("ESA {exe}: {digest}".format(exe=shasum_exe, digest=digest))
  
     # ---- delete intermediate files
-    if args.k==False:
-      print("==== Deleting temporary files.") # no need to show the command
-      command = "rm {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input);
-      if(execute_command(command,logfile,logfile_name)!=True):
-        return
-      if args.s or args.S:
-        command = "rm {file}.sai {file}.bwsai".format(file=args.input);
-        if(execute_command(command,logfile,logfile_name)!=True):
-          return
+    delete_temp_files(args,logfile,logfile_name)
 
     # --- start checking ---
     if args.c:
@@ -141,6 +170,27 @@ def main():
 
   print("==== Done")
 
+# delete intermediate files
+def delete_temp_files(args,logfile,logfile_name):
+    if args.k==False:  
+      print("==== Deleting temporary files.") # no need to show the command
+      command = "rm -f {file}.parse {file}.parse_old {file}.last {file}.bwlast {file}.dict {file}.ilist {file}.occ".format(file=args.input)
+      if(execute_command(command,logfile,logfile_name)!=True):
+        return
+      for i in range(args.t):
+        command = "rm -f {file}.{i}.parse_old {file}.{i}.last".format(file=args.input, i=i)
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
+      if args.s or args.S:
+        command = "rm -f {file}.sai {file}.bwsai".format(file=args.input);
+        if(execute_command(command,logfile,logfile_name)!=True):
+          return
+        for i in range(args.t):
+          command = "rm -f {file}.{i}.sai".format(file=args.input, i=i)
+          if(execute_command(command,logfile,logfile_name)!=True):
+            return
+
+
 # compute hash digest for a file 
 def file_digest(name,logfile):
     try:
@@ -152,9 +202,9 @@ def file_digest(name,logfile):
     return hashsum  
 
 # execute command: return True is everything OK, False otherwise
-def execute_command(command,logfile,logfile_name):
+def execute_command(command,logfile,logfile_name,env=None):
   try:
-    subprocess.check_call(command.split(),stdout=logfile,stderr=logfile)
+    subprocess.run(command.split(),stdout=logfile,stderr=logfile,check=True,env=env)
   except subprocess.CalledProcessError:
     print("Error executing command line:")
     print("\t"+ command)
