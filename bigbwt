@@ -79,8 +79,9 @@ def main():
       start = time.time()
       command = "tar -cJf {file}.parse.{wsize}.txz {file}.parse {file}.dict".format( 
               wsize=args.wsize, file=args.input)
-      print("==== Saving. Command:", command)
-      if(execute_command(command,logfile,logfile_name)!=True): return
+      print("==== Compressing. Command:", command)
+      if(execute_command(command,logfile,logfile_name,env={"XZ_OPT":"-9"})!=True): 
+        return
       print("Elapsed time: {0:.4f}".format(time.time()-start))
       delete_temp_files(args,logfile,logfile_name)
       print("==== Done: Parsing output xz-compressed as requested")
@@ -198,9 +199,9 @@ def file_digest(name,logfile):
     return hashsum  
 
 # execute command: return True is everything OK, False otherwise
-def execute_command(command,logfile,logfile_name):
+def execute_command(command,logfile,logfile_name,env=None):
   try:
-    subprocess.check_call(command.split(),stdout=logfile,stderr=logfile)
+    subprocess.run(command.split(),stdout=logfile,stderr=logfile,check=True,env=env)
   except subprocess.CalledProcessError:
     print("Error executing command line:")
     print("\t"+ command)
