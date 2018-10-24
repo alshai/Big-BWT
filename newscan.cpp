@@ -124,15 +124,10 @@ struct word_stats {
 // struct containing command line parameters and other globals
 struct Args {
    string inputFileName = "";
-   string parse0ext = EXTPARS0;    // extension tmp parse file 
-   string parseExt =  EXTPARSE;    // extension final parse file  
-   string occExt =    EXTOCC;      // extension occurrences file  
-   string dictExt =   EXTDICT;     // extension dictionary file  
-   string lastExt =   EXTLST;      // extension file containing last chars   
-   string saExt =     EXTSAI;      // extension file containing sa info   
    int w = 10;            // sliding window size and its default 
    int p = 100;           // modulus for establishing stopping w-tuples 
-   bool SAinfo = false;   // compute SA information 
+   bool SAinfo = false;   // compute SA information
+   bool compress = false; // parsing called in compress mode 
    int th=0;              // number of helper threads
    int verbose=0;         // verbosity level 
 };
@@ -191,7 +186,6 @@ struct KR_window {
 };
 // -----------------------------------------------------------
 
-static void die(const string s);
 static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos);
 
 #ifndef NOTHREADS
@@ -280,13 +274,13 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   }
 
   // open the 1st pass parsing file 
-  FILE *g = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
+  FILE *g = open_aux_file(arg.inputFileName.c_str(),EXTPARS0,"wb");
   // open output file containing the char at position -(w+1) of each word
-  FILE *last_file = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
+  FILE *last_file = open_aux_file(arg.inputFileName.c_str(),EXTLST,"wb");  
   // if requested open file containing the ending position+1 of each word
   FILE *sa_file = NULL;
   if(arg.SAinfo) 
-    sa_file = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
+    sa_file = open_aux_file(arg.inputFileName.c_str(),EXTSAI,"wb");
   
   // main loop on the chars of the input file
   int c;
@@ -330,37 +324,44 @@ bool pstringCompare(const string *a, const string *b)
 void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const string *> &sortedDict)
 {
   assert(sortedDict.size() == wfreq.size());
-  // open dictionary and occ files 
-  string fdictname = arg.inputFileName + "." + arg.dictExt;
-  FILE *fdict = fopen(fdictname.c_str(),"wb");
-  if(fdict==NULL) die("Cannot open " + fdictname);
-  string foccname = arg.inputFileName + "." + arg.occExt;
-  FILE *focc = fopen(foccname.c_str(),"wb");
-  if(focc==NULL) die("Cannot open " + foccname);
+  FILE *fdict;
+  // open dictionary and occ files
+  if(arg.compress)
+    fdict = open_aux_file(arg.inputFileName.c_str(),EXTDICZ,"wb");
+  else
+    fdict = open_aux_file(arg.inputFileName.c_str(),EXTDICT,"wb");
+  FILE *focc = open_aux_file(arg.inputFileName.c_str(),EXTOCC,"wb");
   
   word_int_t wrank = 1; // current word rank (1 based)
   for(auto x: sortedDict) {
-    size_t s = fwrite((*x).data(),1,(*x).size(), fdict);
-    if(s!=(*x).size()) die("Error writing to " + fdictname);
-    if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to " + fdictname);
+    const char *word = (*x).data();       // current dictionary word
+    int offset=0; size_t len = (*x).size();  // offset and length of word
+    assert(len>(size_t)arg.w);
+    if(arg.compress) {  // if we are compressing remove overlapping and extraneous chars
+      len -= arg.w;     // remove the last w chars 
+      if(word[0]==Dollar) {offset=1; len -= 1;} // remove the very first Dollar
+    }
+    size_t s = fwrite(word+offset,1,len, fdict);
+    if(s!=len) die("Error writing to DICT file");
+    if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to DICT file");
     uint64_t hash = kr_hash(*x);
     auto& wf = wfreq.at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
-    if(s!=1) die("Error writing to " + foccname);
+    if(s!=1) die("Error writing to OCC file");
     assert(wf.rank==0);
     wf.rank = wrank++;
   }
-  if(fputc(EndOfDict,fdict)==EOF) die("Error writing EndOfDict to " + fdictname);
-  if(fclose(focc)!=0) die("Error closing " + foccname);
-  if(fclose(fdict)!=0) die("Error closing" + fdictname);
+  if(fputc(EndOfDict,fdict)==EOF) die("Error writing EndOfDict to DICT file");
+  if(fclose(focc)!=0) die("Error closing OCC file");
+  if(fclose(fdict)!=0) die("Error closing DICT file");
 }
 
 void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
 {
   // open parse files. the old parse can be stored in a single file or in multiple files
-  mFile *moldp = mopen_aux_file(arg.inputFileName.c_str(), arg.parse0ext.c_str(), arg.th);
-  FILE *newp = open_aux_file(arg.inputFileName.c_str(), arg.parseExt.c_str(), "wb");
+  mFile *moldp = mopen_aux_file(arg.inputFileName.c_str(), EXTPARS0, arg.th);
+  FILE *newp = open_aux_file(arg.inputFileName.c_str(), EXTPARSE, "wb");
 
   // recompute occ as an extra check 
   vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
@@ -411,10 +412,12 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:sht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:sht:vc") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
+        case 'c':
+        arg.compress = true; break;
         case 'w':
         sarg.assign( optarg );
         arg.w = stoi( sarg ); break;
@@ -540,11 +543,5 @@ int main(int argc, char** argv)
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   cout << "==== Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
-}
-
-static void die(const string s)
-{
-  perror(s.c_str());
-  exit(1);
 }
 

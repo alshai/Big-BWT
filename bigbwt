@@ -62,7 +62,8 @@ def main():
       command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parseNT_exe, 
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
-    if (args.v): command += " -v"
+    if args.v: command += " -v"
+    if args.parsing or args.compress: command += " -c"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return
@@ -77,8 +78,7 @@ def main():
     elif args.compress:
       # save parsing files 
       start = time.time()
-      command = "tar -cJf {file}.parse.{wsize}.txz {file}.parse {file}.dict".format( 
-              wsize=args.wsize, file=args.input)
+      command = "tar -cJf {file}.parse.txz {file}.parse {file}.dicz".format(file=args.input)
       print("==== Compressing. Command:", command)
       if(execute_command(command,logfile,logfile_name,env={"XZ_OPT":"-9"})!=True): 
         return

@@ -105,24 +105,13 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
     td[i].end = (i+1==arg.th) ? size : (i+1)*(size/arg.th); // range end
     assert(td[i].end<=size);
     // open the 1st pass parsing file 
-    td[i].parse = open_aux_file_num(arg.inputFileName.c_str(),arg.parse0ext.c_str(),i,"wb");
+    td[i].parse = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,i,"wb");
     // open output file containing the char at position -(w+1) of each word
-    td[i].last = open_aux_file_num(arg.inputFileName.c_str(),arg.lastExt.c_str(),i,"wb");  
+    td[i].last = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,i,"wb");  
     // if requested open file containing the ending position+1 of each word
-    td[i].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),arg.saExt.c_str(),i,"wb") : NULL;
+    td[i].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,i,"wb") : NULL;
     xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
   }
-
-#if 0
-  // open the 1st pass parsing file 
-  FILE *parse = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
-  // open output file containing the char at position -(w+1) of each word
-  FILE *last = open_aux_file(arg.inputFileName.c_str(),arg.lastExt.c_str(),"wb");  
-  // if requested open file containing the ending position+1 of each word
-  FILE *sa = NULL;
-  if(arg.SAinfo) 
-    sa = open_aux_file(arg.inputFileName.c_str(),arg.saExt.c_str(),"wb");
-#endif
   
   // wait for the threads to finish (in order) and close output files
   long tot_char=0;
