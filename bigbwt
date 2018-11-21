@@ -17,16 +17,16 @@ check the correctness of the BWT by some other means (for example inverting it)
 """
 
 dirname = os.path.dirname(os.path.abspath(__file__))
-parse_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "newscan.x")
-parseNT_exe     =  "/usr/bin/time -v " + os.path.join(dirname, "newscanNT.x")
-parsebwt_exe    =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse")
-parsebwt_exe64  =  "/usr/bin/time -v " + os.path.join(dirname, "bwtparse64")
-pfbwt_exe       =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwt.x")
-pfbwtNT_exe     =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwtNT.x")
-pfbwt_exe64     =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwt64.x")
-pfbwtNT_exe64   =  "/usr/bin/time -v " + os.path.join(dirname, "pfbwtNT64.x")
-bwt_exe         =  "/usr/bin/time -v " + os.path.join(dirname, "simplebwt")
-bwt_exe64       =  "/usr/bin/time -v " + os.path.join(dirname, "simplebwt64")
+parse_exe       =  "time -v " + os.path.join(dirname, "newscan.x")
+parseNT_exe     =  "time -v " + os.path.join(dirname, "newscanNT.x")
+parsebwt_exe    =  "time -v " + os.path.join(dirname, "bwtparse")
+parsebwt_exe64  =  "time -v " + os.path.join(dirname, "bwtparse64")
+pfbwt_exe       =  "time -v " + os.path.join(dirname, "pfbwt.x")
+pfbwtNT_exe     =  "time -v " + os.path.join(dirname, "pfbwtNT.x")
+pfbwt_exe64     =  "time -v " + os.path.join(dirname, "pfbwt64.x")
+pfbwtNT_exe64   =  "time -v " + os.path.join(dirname, "pfbwtNT64.x")
+bwt_exe         =  "time -v " + os.path.join(dirname, "simplebwt")
+bwt_exe64       =  "time -v " + os.path.join(dirname, "simplebwt64")
 shasum_exe      =  "sha256sum"
 
 
@@ -43,6 +43,7 @@ def main():
   parser.add_argument('-v',  help='verbose',action='store_true')
   parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
   parser.add_argument('-f', help='read fasta',action='store_true')
+  parser.add_argument('-a', help='acgt only', action='store_true')
   parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
@@ -65,6 +66,7 @@ def main():
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.S): command += " -s"
     if args.f: command += " -f"
+    if args.a: command += " -a"
     if (args.v): command += " -v"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):

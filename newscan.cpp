@@ -117,6 +117,30 @@ typedef uint32_t word_int_t;
 #define MAX_WORD_OCC (UINT32_MAX)
 typedef uint32_t occ_int_t;
 
+uint8_t asc2dnacat[] = {
+    /*   0 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /*  16 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /*  32 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0,
+           /*                                        - */
+    /*  48 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /*  64 */ 0, 1, 2, 1, 2, 0, 0, 1, 2, 0, 0, 2, 0, 2, 2, 0,
+           /*    A  B  C  D        G  H        K     M  N */
+    /*  80 */ 0, 0, 2, 2, 1, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,
+           /*       R  S  T     V  W  X  Y */
+    /*  96 */ 0, 1, 2, 1, 2, 0, 0, 1, 2, 0, 0, 2, 0, 2, 2, 0,
+           /*    a  b  c  d        g  h        k     m  n */
+    /* 112 */ 0, 0, 2, 2, 1, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,
+           /*       r  s  t     v  w  x  y */
+    /* 128 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 144 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 160 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 176 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 192 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 208 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 224 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    /* 240 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 // values of the wordFreq map: word, its number of occurrences, and its rank
 struct word_stats {
   string str;
@@ -140,6 +164,7 @@ struct Args {
    bool is_fasta = false;  // read a fasta file (strip nonACGTNs)
    int th=0;              // number of helper threads
    int verbose=0;         // verbosity level 
+   bool acgt_only = false;
 };
 
 
@@ -292,7 +317,6 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   word.append(1,Dollar);
   KR_window krw(arg.w);
   std::string line;
-  //
   if (arg.is_fasta) {
       gzFile fp;
       kseq_t *seq;
@@ -439,8 +463,10 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fsht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fasht:v") ) != -1) {
       switch(c) {
+        case 'a':
+        arg.acgt_only = true; break;
         case 's':
         arg.SAinfo = true; break;
         case 'w':
