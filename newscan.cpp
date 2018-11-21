@@ -325,7 +325,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
       seq = kseq_init(fp);
       while ((l =  kseq_read(seq)) >= 0) {
           for (size_t i = 0; i < seq->seq.l; i++) {
-              c = std::toupper(seq->seq.l);
+              c = std::toupper(seq->seq.s[i]);
               if (c <= Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
               word.append(1, c);
               uint64_t hash = krw.addchar(c);
