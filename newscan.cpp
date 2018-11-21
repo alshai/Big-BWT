@@ -99,6 +99,10 @@
 extern "C" {
 #include "utils.h"
 }
+#include <zlib.h>
+#include <stdio.h>
+#include "kseq.h"
+KSEQ_INIT(gzFile, gzread)
 
 using namespace std;
 using namespace __gnu_cxx;
@@ -270,17 +274,6 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
 {
   //open a, possibly compressed, input file
   string fnam = arg.inputFileName;
-  #ifdef GZSTREAM 
-  igzstream f(fnam.c_str());
-  #else
-  ifstream f(fnam);
-  #endif    
-  if(!f.rdbuf()->is_open()) {// is_open does not work on igzstreams 
-    perror(__func__);
-    throw new std::runtime_error("Cannot open input file " + fnam);
-  }
-
-
   // open the 1st pass parsing file 
   FILE *g = open_aux_file(arg.inputFileName.c_str(),arg.parse0ext.c_str(),"wb");
   // open output file containing the char at position -(w+1) of each word
@@ -299,14 +292,16 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   word.append(1,Dollar);
   KR_window krw(arg.w);
   std::string line;
+  //
   if (arg.is_fasta) {
-      // remove newline chars, lines matching r"^>"
-      while (std::getline(f, line)) {
-          if (line[0] == '>')  // NOTE: newline removed by getline
-              continue;
-          // convert to uppercase
-          for (size_t i = 0; i < line.size(); i++) {
-              c = std::toupper(line[i]);
+      gzFile fp;
+      kseq_t *seq;
+      int l;
+      fp = gzopen(fnam.c_str(), "r");
+      seq = kseq_init(fp);
+      while ((l =  kseq_read(seq)) >= 0) {
+          for (size_t i = 0; i < seq->seq.l; i++) {
+              c = std::toupper(seq->seq.l);
               if (c <= Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
               word.append(1, c);
               uint64_t hash = krw.addchar(c);
@@ -316,8 +311,19 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
           }
           if (c <= Dollar) break;
       }    
+      kseq_destroy(seq);
+      gzclose(fp);
   }
   else {
+      #ifdef GZSTREAM 
+      igzstream f(fnam.c_str());
+      #else
+      ifstream f(fnam);
+      #endif    
+      if(!f.rdbuf()->is_open()) {// is_open does not work on igzstreams 
+        perror(__func__);
+        throw new std::runtime_error("Cannot open input file " + fnam);
+      }
       while( (c = f.get()) != EOF ) {
         if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
         word.append(1,c);
@@ -328,6 +334,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
           save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
         }    
       }
+      f.close();
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
@@ -337,7 +344,6 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   if(fclose(last_file)!=0) die("Error closing last file");  
   if(fclose(g)!=0) die("Error closing parse file");
   if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
-  f.close();
   return krw.tot_char;
 }
 

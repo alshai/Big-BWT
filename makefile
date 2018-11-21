@@ -36,10 +36,10 @@ cnewscan.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl -DNOTHREADS
 
 newscanNT.x: newscan.cpp malloc_count.o utils.o
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -ldl -DNOTHREADS
+	$(CXX) $(CXX_FLAGS) -o $@ $^ -lz -ldl -DNOTHREADS
 
 newscan.x: newscan.cpp newscan.hpp malloc_count.o utils.o xerrors.o 
-	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -pthread
+	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -lz -pthread
 
 
 # prefix free BWT construction. malloc_count not used since not compatible with -pthread
