@@ -268,7 +268,7 @@ static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_s
 #endif
   }
   else {
-      if(__builtin_expect(__sync_and_and_fetch(&freq[hash].occ,  1) <= 0, 0)) {
+      if(__builtin_expect(__sync_add_and_fetch(&freq[hash].occ,  1) <= 0, 0)) {
         cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
         cerr<< MAX_WORD_OCC << ") exceeded\n";
         exit(1);
