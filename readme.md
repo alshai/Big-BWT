@@ -12,7 +12,7 @@ Copyrights 2018 by the authors.
 * `make` (create the C/C++ executables) 
 * `bigbwt -h` (get usage instruction)
 
-Note that `bigbwt` is a Python script so you need python 3.x installed.
+Note that `bigbwt` is a Python script so you need at least Python 3.4 installed.
  
 
 ## Sample usage

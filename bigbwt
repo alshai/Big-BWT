@@ -201,7 +201,8 @@ def file_digest(name,logfile):
 # execute command: return True is everything OK, False otherwise
 def execute_command(command,logfile,logfile_name,env=None):
   try:
-    subprocess.run(command.split(),stdout=logfile,stderr=logfile,check=True,env=env)
+    #subprocess.run(command.split(),stdout=logfile,stderr=logfile,check=True,env=env)
+    subprocess.check_call(command.split(),stdout=logfile,stderr=logfile,env=env)
   except subprocess.CalledProcessError:
     print("Error executing command line:")
     print("\t"+ command)
