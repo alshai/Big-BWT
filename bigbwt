@@ -16,16 +16,16 @@ takes 9n bytes of RAM. If this is a problem, just don't use the option -c and
 check the correctness of the BWT by some other means (for example inverting it)
 """
 
-parse_exe = "./newscan.x"
-parseNT_exe = "./newscanNT.x"
-parsebwt_exe = "./bwtparse"
-parsebwt_exe64 = "./bwtparse64"
-pfbwt_exe = "./pfbwt.x"
-pfbwtNT_exe = "./pfbwtNT.x"
-pfbwt_exe64 = "./pfbwt64.x"
-pfbwtNT_exe64 = "./pfbwtNT64.x"
-bwt_exe = "./simplebwt"
-bwt_exe64 = "./simplebwt64"
+parse_exe = "newscan.x"
+parseNT_exe = "newscanNT.x"
+parsebwt_exe = "bwtparse"
+parsebwt_exe64 = "bwtparse64"
+pfbwt_exe = "pfbwt.x"
+pfbwtNT_exe = "pfbwtNT.x"
+pfbwt_exe64 = "pfbwt64.x"
+pfbwtNT_exe64 = "pfbwtNT64.x"
+bwt_exe = "simplebwt"
+bwt_exe64 = "simplebwt64"
 shasum_exe = "sha256sum"
 
 
@@ -50,16 +50,20 @@ def main():
     return
     
   logfile_name = args.input + ".log"
+  # get main bigbwt directory 
+  args.bigbwt_dir = os.path.split(sys.argv[0])[0]  
   print("Sending logging messages to file:", logfile_name)
   with open(logfile_name,"a") as logfile:  
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
     if args.t>0:
-      command = "{exe} {file} -w {wsize} -p {modulus} -t {th}".format(exe=parse_exe, 
+      command = "{exe} {file} -w {wsize} -p {modulus} -t {th}".format(
+              exe = os.path.join(args.bigbwt_dir,parse_exe),
               wsize=args.wsize, modulus = args.mod, th=args.t, file=args.input)
     else:
-      command = "{exe} {file} -w {wsize} -p {modulus}".format(exe=parseNT_exe, 
+      command = "{exe} {file} -w {wsize} -p {modulus}".format(
+              exe = os.path.join(args.bigbwt_dir,parseNT_exe),
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
@@ -96,9 +100,11 @@ def main():
       print("Please re-run the program with a larger modulus (currently %d)" % args.mod)
       sys.exit(1)  
     elif(parse_size >=  (2**31-1) ):
-      command = "{exe} {file}".format(exe=parsebwt_exe64, file=args.input)
+      command = "{exe} {file}".format(
+              exe = os.path.join(args.bigbwt_dir,parsebwt_exe64), file=args.input)
     else:
-      command = "{exe} {file}".format(exe=parsebwt_exe, file=args.input)
+      command = "{exe} {file}".format(
+              exe = os.path.join(args.bigbwt_dir,parsebwt_exe), file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     if (args.t>0): command += " -t " + str(args.t)
     print("==== Computing BWT of parsing. Command:", command)
@@ -111,14 +117,22 @@ def main():
     if(os.path.getsize(args.input+".dict") >=  (2**31-4) ):
       # 64 bit version with and without threads
       if args.t>0 and args.s==False and args.e==False:
-        command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe64, wsize=args.wsize, file=args.input, th=args.t)
+        command = "{exe} -w {wsize} {file} -t {th}".format(
+              exe = os.path.join(args.bigbwt_dir,pfbwt_exe64),
+              wsize=args.wsize, file=args.input, th=args.t)
       else:
-        command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe64, wsize=args.wsize, file=args.input)        
+        command = "{exe} -w {wsize} {file}".format( 
+                exe = os.path.join(args.bigbwt_dir,pfbwtNT_exe64),
+                wsize=args.wsize, file=args.input)        
     else:  # 32 bit version
       if args.t>0 and args.s==False and args.e==False:
-        command = "{exe} -w {wsize} {file} -t {th}".format(exe=pfbwt_exe, wsize=args.wsize, file=args.input, th=args.t)
+        command = "{exe} -w {wsize} {file} -t {th}".format(
+                exe = os.path.join(args.bigbwt_dir,pfbwt_exe),
+                wsize=args.wsize, file=args.input, th=args.t)
       else:
-        command = "{exe} -w {wsize} {file}".format(exe=pfbwtNT_exe, wsize=args.wsize, file=args.input)
+        command = "{exe} -w {wsize} {file}".format(
+                exe = os.path.join(args.bigbwt_dir,pfbwtNT_exe),
+                wsize=args.wsize, file=args.input)
     if args.s: command += " -s"
     if args.e: command += " -e"
     if args.S: command += " -S"
@@ -150,9 +164,11 @@ def main():
     if args.c:
       start = time.time()
       if(os.path.getsize(args.input)>= 2**31):
-        command = "{exe} {file}".format(exe=bwt_exe64, file=args.input)
+        command = "{exe} {file}".format(
+                  exe = os.path.join(args.bigbwt_dir,bwt_exe64), file=args.input)
       else:
-        command = "{exe} {file}".format(exe=bwt_exe, file=args.input)
+        command = "{exe} {file}".format(
+                  exe = os.path.join(args.bigbwt_dir,bwt_exe), file=args.input)
       print("==== Computing BWT using sacak. Command:", command)       
       if(execute_command(command,logfile,logfile_name)!=True):
         return   
