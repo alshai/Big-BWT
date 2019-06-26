@@ -5,14 +5,72 @@ typedef struct {
   MTmaps *mtmaps;  // collection of hash->WordFreq maps  
   long start, end; // input
   long skipped, parsed, words;  // output
-  FILE *parse, *last, *sa;  
+  FILE *tmp_parse_file, *last_file, *sa_file;  
+  
+  void update(uint64_t hash, string &w);
+
 } mt_data;
 
 
-static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, mt_data *);
+void mt_data::update(uint64_t hash, string &w) {
+  
+  int i = hash % mtmaps->n;
+  map<uint64_t,word_stats> *freq = &mtmaps->maps[i];
+  pthread_mutex_t *m = &mtmaps->muts[i]; 
+  xpthread_mutex_lock(m,__LINE__,__FILE__);
+  // update frequency table for current hash
+  if(freq->find(hash)==freq->end()) {
+      (*freq)[hash].occ = 1; // new hash
+      (*freq)[hash].str = w; 
+  }
+  else {
+      word_stats *wfreq = &(*freq)[hash];  // pointer to the stats for w
+      wfreq->occ += 1; // known hash
+      if(wfreq->occ <=0) {
+        cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
+        cerr<< MAX_WORD_OCC << ") exceeded\n";
+        exit(1);
+      }
+      if(wfreq->str != w) {
+        cerr << "Emergency exit! Hash collision for strings:\n";
+        cerr << wfreq->str << "\n  vs\n" <<  w << endl;
+        exit(1);
+      }
+  }
+  xpthread_mutex_unlock(m,__LINE__,__FILE__);
+}
+
+
+// save current word in the freq map and update it leaving only the 
+// last minsize chars which is the overlap with next word  
+static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, mt_data *d)
+{
+  assert(pos==0 || w.size() > minsize);
+  if(w.size() <= minsize) return;
+  // get the hash value and write it to the temporary parse file
+  uint64_t hash = kr_hash(w);
+  if(fwrite(&hash,sizeof(hash),1,d->tmp_parse_file)!=1) die("parse write error");
+
+  // update the frequency  word w via its hash
+  d->update(hash,w);
+
+  // output char w+1 from the end
+  if(fputc(w[w.size()- minsize-1],d->last_file)==EOF) die("Error writing to .last file");
+  // compute ending position +1 of current word and write it to sa file 
+  // pos is the ending position+1 of the previous word and is updated here 
+  if(pos==0) pos = w.size()-1; // -1 is for the initial $ of the first word
+  else pos += w.size() - minsize; 
+  if(d->sa_file) if(fwrite(&pos,IBYTES,1,d->sa_file)!=1) die("Error writing to sa info file");
+  // keep only the overlapping part of the window
+  w.erase(0,w.size() - minsize);
+}
 
 
 
+
+// function executed by each thread to parse a segment of input files
+// the tmp_parse, last and (optional) sa information is stored 
+// in a different file for each thread
 static void *mt_parse(void *dx)
 {
   // extract input data
@@ -80,9 +138,10 @@ static void *mt_parse(void *dx)
 }
 
 
-// prefix free parse of file fnam. w is the window size, p is the modulus 
-// use a KR-hash as the word ID that is written to the parse file
-uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
+// multithread prefix free parse of a file 
+// mtmaps contain a set of dictionaries associating to each
+// hash value a string and its number of occurrences
+static uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
 {
   // get input file size 
   ifstream f(arg.inputFileName, std::ifstream::ate);
@@ -104,11 +163,11 @@ uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
     td[i].end = (i+1==arg.th) ? size : (i+1)*(size/arg.th); // range end
     assert(td[i].end<=size);
     // open the 1st pass parsing file 
-    td[i].parse = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,i,"wb");
+    td[i].tmp_parse_file = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,i,"wb");
     // open output file containing the char at position -(w+1) of each word
-    td[i].last = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,i,"wb");  
+    td[i].last_file = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,i,"wb");  
     // if requested open file containing the ending position+1 of each word
-    td[i].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,i,"wb") : NULL;
+    td[i].sa_file = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,i,"wb") : NULL;
     xpthread_create(&t[i],NULL,&mt_parse,&td[i],__LINE__,__FILE__);
   }
   
@@ -120,9 +179,10 @@ uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
       cout << "s:" << td[i].start << "  e:" << td[i].end << "  pa:";
       cout << td[i].parsed << "  sk:" << td[i].skipped << "  wo:" << td[i].words << endl;
     }
-    fclose(td[i].parse);
-    fclose(td[i].last);
-    if(td[i].sa) fclose(td[i].sa);
+    // close thread-specific output files     
+    fclose(td[i].tmp_parse_file);
+    fclose(td[i].last_file);
+    if(td[i].sa_file) fclose(td[i].sa_file);
     if(td[i].words>0) {
       // extra check
       assert(td[i].parsed>arg.w);
@@ -131,58 +191,5 @@ uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
     else assert(i>0); // the first thread must produce some words
   }
   assert(tot_char==size);
-  // close output files 
-  #if 0
-  if(sa) if(fclose(sa)!=0) die("Error closing SA file");
-  if(fclose(last)!=0) die("Error closing last file");  
-  if(fclose(parse)!=0) die("Error closing parse file");
-  #endif
   return size;   
 }
-
-
-// save current word in the freq map and update it leaving only the 
-// last minsize chars which is the overlap with next word  
-static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, mt_data *d)
-{
-  assert(pos==0 || w.size() > minsize);
-  if(w.size() <= minsize) return;
-  // get the hash value and write it to the temporary parse file
-  uint64_t hash = kr_hash(w);
-  if(fwrite(&hash,sizeof(hash),1,d->tmp_parse_file)!=1) die("parse write error");
-
-#ifndef NOTHREADS
-  xpthread_mutex_lock(&map_mutex,__LINE__,__FILE__);
-#endif  
-  // update frequency table for current hash
-  if(freq.find(hash)==freq.end()) {
-      freq[hash].occ = 1; // new hash
-      freq[hash].str = w; 
-  }
-  else {
-      freq[hash].occ += 1; // known hash
-      if(freq[hash].occ <=0) {
-        cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
-        cerr<< MAX_WORD_OCC << ") exceeded\n";
-        exit(1);
-      }
-      if(freq[hash].str != w) {
-        cerr << "Emergency exit! Hash collision for strings:\n";
-        cerr << freq[hash].str << "\n  vs\n" <<  w << endl;
-        exit(1);
-      }
-  }
-#ifndef NOTHREADS
-  xpthread_mutex_unlock(&map_mutex,__LINE__,__FILE__);
-#endif
-  // output char w+1 from the end
-  if(fputc(w[w.size()- minsize-1],d->last_file)==EOF) die("Error writing to .last file");
-  // compute ending position +1 of current word and write it to sa file 
-  // pos is the ending position+1 of the previous word and is updated here 
-  if(pos==0) pos = w.size()-1; // -1 is for the initial $ of the first word
-  else pos += w.size() - minsize; 
-  if(d->sa_file) if(fwrite(&pos,IBYTES,1,d->sa_file)!=1) die("Error writing to sa info file");
-  // keep only the overlapping part of the window
-  w.erase(0,w.size() - minsize);
-}
-

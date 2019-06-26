@@ -151,6 +151,11 @@ struct MTmaps {
        xpthread_mutex_init(&muts[i], NULL, __LINE__,__FILE__);
    }
    
+   // destructor
+   ~MTmaps() {
+     delete[] muts;
+   }
+   
    // return the total size of the maps, ie total number of stored words
    uint64_t size() {
      uint64_t s=0;
@@ -158,6 +163,7 @@ struct MTmaps {
        s += maps[i].size();
      return s;
    }
+
 };
 
 // -----------------------------------------------------------------
@@ -215,9 +221,6 @@ struct KR_window {
 // -----------------------------------------------------------
 
 
-#include "pscan.hpp"
-
-
 // compute 64-bit KR hash of a string 
 // to avoid overflows in 64 bit aritmethic the prime is taken < 2**55
 // if collisions occur use a prime close to 2**63 and 128 bit variables 
@@ -234,59 +237,9 @@ uint64_t kr_hash(string s) {
 }
 
 
-#if 0
-// prefix free parse of file fnam. w is the window size, p is the modulus 
-// use a KR-hash as the word ID that is immediately written to the parse file
-uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
-{
-  //open input file
-  string fnam = arg.inputFileName;
-  ifstream f(fnam);
-  if(!f.is_open()) {
-    perror(__func__);
-    throw new std::runtime_error("Cannot open input file " + fnam);
-  }
+#include "pscan.hpp"
 
-  // open the 1st pass parsing file 
-  arg.tmp_parse_file = open_aux_file(arg.inputFileName.c_str(),EXTPARS0,"wb");
-  // open output file containing the char at position -(w+1) of each word
-  arg.last_file = open_aux_file(arg.inputFileName.c_str(),EXTLST,"wb");  
-  // if requested open file containing the ending position+1 of each word
-  arg.sa_file = NULL;
-  if(arg.SAinfo) 
-    arg.sa_file = open_aux_file(arg.inputFileName.c_str(),EXTSAI,"wb");
-  
-  // main loop on the chars of the input file
-  int c;
-  uint64_t pos = 0; // ending position +1 of previous word in the original text, used for computing sa_info 
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
-  // init first word in the parsing with a Dollar char 
-  string word("");
-  word.append(1,Dollar);
-  // init empty KR window: constructor only needs window size
-  KR_window krw(arg.w);
-  while( (c = f.get()) != EOF ) {
-    if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-    word.append(1,c);
-    uint64_t hash = krw.addchar(c);
-    if(hash%arg.p==0) {
-      // end of word, save it and write its full hash to the output file
-      // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-      save_update_word(word,arg.w,wordFreq,pos,arg);
-    }    
-  }
-  // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,pos,arg);
-  // close input and output files 
-  if(arg.sa_file) if(fclose(arg.sa_file)!=0) die("Error closing SA file");
-  if(fclose(arg.last_file)!=0) die("Error closing last file");  
-  if(fclose(arg.tmp_parse_file)!=0) die("Error closing parse file");
-  if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
-  f.close();
-  return krw.tot_char;
-}
-#endif
+
 
 // function used to compare two string pointers
 bool pstringCompare(const string *a, const string *b)
@@ -483,19 +436,24 @@ int main(int argc, char** argv)
   // fill array
   uint64_t sumLen = 0;
   uint64_t totWord = 0;
-  for (auto& x: wordFreq) {
-    sumLen += x.second.str.size();
-    totWord += x.second.occ;
-    dictArray.push_back(&x.second.str);
+  
+  // copy words from all maps to the dictionary
+  for(auto &wordFreq: mtmaps.maps) {
+    for(auto& x: wordFreq) {
+      sumLen += x.second.str.size();
+      totWord += x.second.occ;
+      dictArray.push_back(&x.second.str);
+    }
   }
   assert(dictArray.size()==totDWord);
   cout << "Sum of lenghts of dictionary words: " << sumLen << endl; 
   cout << "Total number of words: " << totWord << endl; 
+
   // sort dictionary
   sort(dictArray.begin(), dictArray.end(),pstringCompare);
   // write plain dictionary and occ file, also compute rank for each hash 
   cout << "Writing plain dictionary and occ file\n";
-  writeDictOcc(arg, wordFreq, dictArray);
+  writeDictOcc(arg, mtmaps, dictArray);
   dictArray.clear(); // reclaim memory
   cout << "Dictionary construction took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
     

@@ -121,6 +121,7 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
       cout << "s:" << td[i].start << "  e:" << td[i].end << "  pa:";
       cout << td[i].parsed << "  sk:" << td[i].skipped << "  wo:" << td[i].words << endl;
     }
+    // close thread-specific output files 
     fclose(td[i].parse);
     fclose(td[i].last);
     if(td[i].sa) fclose(td[i].sa);
@@ -132,12 +133,6 @@ uint64_t mt_process_file(Args& arg, map<uint64_t,word_stats>& wf)
     else assert(i>0); // the first thread must produce some words
   }
   assert(tot_char==size);
-  // close output files 
-  #if 0
-  if(sa) if(fclose(sa)!=0) die("Error closing SA file");
-  if(fclose(last)!=0) die("Error closing last file");  
-  if(fclose(parse)!=0) die("Error closing parse file");
-  #endif
   return size;   
 }
 
