@@ -5,7 +5,10 @@ import sys, time, argparse, subprocess, os.path
 Description = """
 Tool to build the BWT for higly repetive files using the approach
 described in 
+
    "Prefix-Free Parsing for Building Big BWTs"
+   by Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini
+   Proc. WABI '18 (http://drops.dagstuhl.de/opus/volltexte/2018/9304/)
    
 The input file cannot contain the characters 0, 1 or 2 which are
 used internally by the algorithm. The character 0 is used as the EOF

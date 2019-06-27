@@ -127,7 +127,7 @@ struct Args {
    int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;   // compute SA information
    bool compress = false; // parsing called in compress mode 
-   int th=0;              // number of helper threads
+   int th=4;              // number of helper threads
    int verbose=0;         // verbosity level
    FILE *tmp_parse_file, *last_file, *sa_file; 
 };
@@ -135,6 +135,7 @@ struct Args {
 // -----------------------------------------------------------
 // struct containing the maps and the relative mutex
 struct MTmaps {
+   int mt_ratio = 3;                       // ratio between #maps and #threads 
    int n;                                  // number of maps 
    vector<map<uint64_t,word_stats>> maps;  // maps
    pthread_mutex_t *muts;                  // mutex for each map
@@ -142,7 +143,7 @@ struct MTmaps {
    // constructor
    MTmaps(int numthreads) {
      // init number of maps
-     n = 3*numthreads;
+     n = mt_ratio*numthreads;
      // init maps
      maps.resize(n);
      // init mutexes
@@ -359,7 +360,7 @@ void print_help(char** argv, Args &args) {
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
         << "\t-p M\tmodulo for defining phrases, def. " << args.p << endl
-        << "\t-t M\tnumber of helper threads, def. none " << endl
+        << "\t-t M\tnumber of helper threads, def. 4 " << endl
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute suffix array info" << endl;
   exit(1);
@@ -417,8 +418,8 @@ void parseArgs( int argc, char** argv, Args& arg ) {
      cout << "Modulus must be at leas 10\n";
      exit(1);
    }
-   if(arg.th<0) {
-     cout << "Number of threads cannot be negative\n";
+   if(arg.th<=0) {
+     cout << "There must be at least one helper thread\n";
      exit(1);
    }
 }
@@ -455,7 +456,7 @@ int main(int argc, char** argv)
   cout << "Parsing took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   // check # distinct words
   if(totDWord>MAX_DISTINCT_WORDS) {
-    cerr << "Emergency exit! The number of distinc words (" << totDWord << ")\n";
+    cerr << "Emergency exit! The number of distinct words (" << totDWord << ")\n";
     cerr << "is larger than the current limit (" << MAX_DISTINCT_WORDS << ")\n";
     exit(1);
   }
@@ -470,7 +471,7 @@ int main(int argc, char** argv)
   uint64_t totWord = 0;
   
   // copy words from all maps to the dictionary
-  for(auto &wordFreq: mtmaps.maps) {
+  for(auto& wordFreq: mtmaps.maps) {
     for(auto& x: wordFreq) {
       sumLen += x.second.str.size();
       totWord += x.second.occ;
