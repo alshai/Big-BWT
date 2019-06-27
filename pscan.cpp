@@ -142,7 +142,7 @@ struct MTmaps {
    // constructor
    MTmaps(int numthreads) {
      // init number of maps
-     n = 2*numthreads;
+     n = 3*numthreads;
      // init maps
      maps.resize(n);
      // init mutexes
@@ -163,8 +163,49 @@ struct MTmaps {
        s += maps[i].size();
      return s;
    }
-
+   
+   // return the rank of the string associated to hash h
+   word_int_t rank(uint64_t h) {
+     return maps[h%n].at(h).rank;
+   }
+   
+  // add the association hash->w to the map hash%n
+  // using a mutex for exclusive write  
+  void update(uint64_t hash, string &w);
+      
 };
+
+void MTmaps::update(uint64_t hash, string &w) 
+{  
+  int i = hash % n;
+  map<uint64_t,word_stats> *freq = &maps[i];
+  pthread_mutex_t *m = &muts[i]; 
+  xpthread_mutex_lock(m,__LINE__,__FILE__);
+  // update frequency table for current hash
+  if(freq->find(hash)==freq->end()) {
+      (*freq)[hash].occ = 1; // new hash
+      (*freq)[hash].str = w; 
+  }
+  else {
+      word_stats *wfreq = &(*freq)[hash];  // pointer to the stats for w
+      wfreq->occ += 1; // known hash
+      if(wfreq->occ <=0) {
+        cerr << "Emergency exit! Maximum # of occurences of dictionary word (";
+        cerr<< MAX_WORD_OCC << ") exceeded\n";
+        exit(1);
+      }
+      if(wfreq->str != w) {
+        cerr << "Emergency exit! Hash collision for strings:\n";
+        cerr << wfreq->str << "\n  vs\n" <<  w << endl;
+        exit(1);
+      }
+  }
+  xpthread_mutex_unlock(m,__LINE__,__FILE__);
+}
+
+
+
+
 
 // -----------------------------------------------------------------
 // class to maintain a window in a string and its KR fingerprint
@@ -249,9 +290,8 @@ bool pstringCompare(const string *a, const string *b)
 
 // given the sorted dictionary and the frequency map write the dictionary and occ files
 // also compute the 1-based rank for each hash
-void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const string *> &sortedDict)
+void writeDictOcc(Args &arg, MTmaps &mtmaps, vector<const string *> &sortedDict)
 {
-  assert(sortedDict.size() == wfreq.size());
   FILE *fdict;
   // open dictionary and occ files
   if(arg.compress)
@@ -273,7 +313,7 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
     if(s!=len) die("Error writing to DICT file");
     if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to DICT file");
     uint64_t hash = kr_hash(*x);
-    auto& wf = wfreq.at(hash);
+    auto& wf = (mtmaps.maps[hash%mtmaps.n]).at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
     if(s!=1) die("Error writing to OCC file");
@@ -285,29 +325,30 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
   if(fclose(fdict)!=0) die("Error closing DICT file");
 }
 
-void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
+void remapParse(Args &arg, MTmaps &mtmaps)
 {
   // open parse files. the old parse can be stored in a single file or in multiple files
   mFile *moldp = mopen_aux_file(arg.inputFileName.c_str(), EXTPARS0, arg.th);
   FILE *newp = open_aux_file(arg.inputFileName.c_str(), EXTPARSE, "wb");
 
   // recompute occ as an extra check 
-  vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
+  vector<occ_int_t> occ(mtmaps.size()+1,0); // ranks are zero based 
   uint64_t hash;
   while(true) {
     size_t s = mfread(&hash,sizeof(hash),1,moldp);
     if(s==0) break;
     if(s!=1) die("Unexpected parse EOF");
-    word_int_t rank = wfreq.at(hash).rank;
+    word_int_t rank = mtmaps.rank(hash);
     occ[rank]++;
     s = fwrite(&rank,sizeof(rank),1,newp);
     if(s!=1) die("Error writing to new parse file");
   }
   if(fclose(newp)!=0) die("Error closing new parse file");
   if(mfclose(moldp)!=0) die("Error closing old parse segment");
-  // check old and recomputed occ coincide 
-  for(auto& x : wfreq)
-    assert(x.second.occ == occ[x.second.rank]);
+  // check old and recomputed occ coincide
+  for(auto &m : mtmaps.maps) 
+    for(auto& x : m)
+      assert(x.second.occ == occ[x.second.rank]);
 }
  
 
@@ -318,9 +359,7 @@ void print_help(char** argv, Args &args) {
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
         << "\t-p M\tmodulo for defining phrases, def. " << args.p << endl
-        #ifndef NOTHREADS
         << "\t-t M\tnumber of helper threads, def. none " << endl
-        #endif        
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute suffix array info" << endl;
   exit(1);
@@ -378,17 +417,10 @@ void parseArgs( int argc, char** argv, Args& arg ) {
      cout << "Modulus must be at leas 10\n";
      exit(1);
    }
-   #ifdef NOTHREADS
-   if(arg.th!=0) {
-     cout << "The NT version cannot use threads\n";
-     exit(1);
-   }
-   #else
    if(arg.th<0) {
      cout << "Number of threads cannot be negative\n";
      exit(1);
    }
-   #endif   
 }
 
 
@@ -400,7 +432,7 @@ int main(int argc, char** argv)
   parseArgs(argc, argv, arg);
   cout << "Windows size: " << arg.w << endl;
   cout << "Stop word modulus: " << arg.p << endl;  
-
+  
   // measure elapsed wall clock time
   time_t start_main = time(NULL);
   time_t start_wc = start_main;
@@ -460,9 +492,8 @@ int main(int argc, char** argv)
   // remap parse file
   start_wc = time(NULL);
   cout << "Generating remapped parse file\n";
-  remapParse(arg, wordFreq);
+  remapParse(arg, mtmaps);
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   cout << "==== Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
 }
-

@@ -16,7 +16,7 @@ takes 9n bytes of RAM. If this is a problem, just don't use the option -c and
 check the correctness of the BWT by some other means (for example inverting it)
 """
 
-parse_exe = "newscan.x"
+parse_exe = "pscan.x"
 parseNT_exe = "newscanNT.x"
 parsebwt_exe = "bwtparse"
 parsebwt_exe64 = "bwtparse64"

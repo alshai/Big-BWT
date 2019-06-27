@@ -4,9 +4,9 @@ CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
 # main executables 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pscan.x pfbwt.x pfbwt64.x unparse
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pscan.x pfbwt.x pfbwt64.x unparse remap
 # executables not using threads (and therefore not needing the thread library)
-EXECS_NT=newscanNT.x pfbwtNT.x  pfbwtNT64.x
+EXECS_NT=newscanNT.x pfbwtNT.x pfbwtNT64.x
 
 # targets not producing a file declared phony
 .PHONY: all clean tarfile
@@ -64,11 +64,14 @@ pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 unparse: unparse.c utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl
 
+remap: remap.c
+	$(CC) $(CFLAGS) -o $@ $< -O -g -Wall -lm 
+
 %.o: %.c %.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp newscan.hpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c unparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.[ch]pp pscan.[ch]pp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c unparse.c remap.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
 	rm -f $(EXECS) $(EXECS_NT) *.o gsa/*.o

@@ -1,49 +1,19 @@
 
-// struct shared via mt_parse
+// struct passed to each thread via mt_parse
+// args and mtmaps are common to all threads
+// all other variables are private
 typedef struct {
-  Args *arg;       // command line input 
-  MTmaps *mtmaps;  // collection of hash->WordFreq maps  
-  long start, end; // input
+  Args *arg;                    // command line input 
+  MTmaps *mtmaps;               // collection of hash->WordFreq maps  
+  long start, end;              // input
   long skipped, parsed, words;  // output
-  FILE *tmp_parse_file, *last_file, *sa_file;  
-  
-  void update(uint64_t hash, string &w);
-
-} mt_data;
-
-
-void mt_data::update(uint64_t hash, string &w) {
-  
-  int i = hash % mtmaps->n;
-  map<uint64_t,word_stats> *freq = &mtmaps->maps[i];
-  pthread_mutex_t *m = &mtmaps->muts[i]; 
-  xpthread_mutex_lock(m,__LINE__,__FILE__);
-  // update frequency table for current hash
-  if(freq->find(hash)==freq->end()) {
-      (*freq)[hash].occ = 1; // new hash
-      (*freq)[hash].str = w; 
-  }
-  else {
-      word_stats *wfreq = &(*freq)[hash];  // pointer to the stats for w
-      wfreq->occ += 1; // known hash
-      if(wfreq->occ <=0) {
-        cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
-        cerr<< MAX_WORD_OCC << ") exceeded\n";
-        exit(1);
-      }
-      if(wfreq->str != w) {
-        cerr << "Emergency exit! Hash collision for strings:\n";
-        cerr << wfreq->str << "\n  vs\n" <<  w << endl;
-        exit(1);
-      }
-  }
-  xpthread_mutex_unlock(m,__LINE__,__FILE__);
-}
+  FILE *tmp_parse_file, *last_file, *sa_file;
+} THdata;
 
 
 // save current word in the freq map and update it leaving only the 
 // last minsize chars which is the overlap with next word  
-static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, mt_data *d)
+static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, THdata *d)
 {
   assert(pos==0 || w.size() > minsize);
   if(w.size() <= minsize) return;
@@ -52,7 +22,7 @@ static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, 
   if(fwrite(&hash,sizeof(hash),1,d->tmp_parse_file)!=1) die("parse write error");
 
   // update the frequency  word w via its hash
-  d->update(hash,w);
+  d->mtmaps->update(hash,w);
 
   // output char w+1 from the end
   if(fputc(w[w.size()- minsize-1],d->last_file)==EOF) die("Error writing to .last file");
@@ -74,7 +44,7 @@ static void mt_save_update_word(string& w, unsigned int minsize, uint64_t &pos, 
 static void *mt_parse(void *dx)
 {
   // extract input data
-  mt_data *d = (mt_data *) dx;
+  THdata *d = (THdata *) dx;
   Args *arg = d->arg;
 
   if(arg->verbose>1)
@@ -155,7 +125,7 @@ static uint64_t mt_process_file(Args& arg, MTmaps &mtmaps)
   // prepare and execute threads 
   assert(arg.th>0);
   pthread_t t[arg.th];
-  mt_data td[arg.th];
+  THdata td[arg.th];
   for(int i=0;i<arg.th;i++) {
     td[i].arg = &arg;
     td[i].mtmaps = &mtmaps;
