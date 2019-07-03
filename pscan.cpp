@@ -1,17 +1,17 @@
 /* ******************************************************************************
- * newscan.cpp
+ * pscan.cpp
  * 
- * parsing algorithm for bwt construction of repetitive sequences based 
+ * paralell parsing algorithm for bwt construction of repetitive sequences based 
  * on prefix free parsing. See:
  *   Christina Boucher, Travis Gagie, Alan Kuhnle and Giovanni Manzini
  *   Prefix-Free Parsing for Building Big BWTs
  *   [Proc. WABI '18](http://drops.dagstuhl.de/opus/volltexte/2018/9304/)
  * 
  * Usage:
- *   newscan.x wsize modulus file
+ *   pscan.x wsize modulus file
  * 
  * Accepts any kind of file that does not contain the chars 0x0, 0x1, 0x2 
- * which are used internally. If input file is gzipped use cnewscan.x which 
+ * which are used internally. If input file is gzipped use pscan.x which 
  * automatically extracts the content
  * 
  * The parameters wsize and modulus are used to define the prefix free parsing 
@@ -19,12 +19,13 @@
  * 
  * The algorithm computes the prefix free parsing of 
  *     T = (0x2)file_content(0x2)^wsize
- * in a dictionary of words D and a parsing P of T in terms of the  
- * dictionary words. Note that the words in the parsing overlap by wsize.
+ * cresting a dictionary of words D and a parsing P of T in terms of the  
+ * dictionary words. Consecutive words in the parsing overlap by wsize.
+ *
  * Let d denote the number of words in D and p the number of phrases in 
  * the parsing P
  * 
- * newscan outputs the following files:
+ * pscan outputs the following files:
  * 
  * file.dict
  * containing the dictionary words in lexicographic order with a 0x1 at the end of
@@ -47,10 +48,10 @@
  * 
  * file.sai (if option -s is given on the command line) 
  * containing the ending position +1 of each dictionary word in the original
- * text written using IBYTES bytes for each entry 
+ * text written using IBYTES bytes for each entry (IBYTES defined in utils.h)
  * Size: d*IBYTES
  * 
- * The output of newscan must be processed by bwtparse, which invoked as
+ * The output of pscan must be processed by bwtparse, which invoked as
  * 
  *    bwtparse file
  * 
@@ -68,7 +69,7 @@
  * 
  * If the option -s is given to bwtparse, it permutes file.sai according
  * to the BWT permutation and generate file.bwsai using again IBYTES
- * per entry.  file.bwsai[i] is the ending position+1 ofBWT[i] in the 
+ * per entry.  file.bwsai[i] is the ending position+1 of BWT[i] in the 
  * original text 
  * 
  * The output of bwtparse (the files .ilist .bwlast) together with the
@@ -93,19 +94,13 @@
 #include <random>
 #include <vector>
 #include <map>
-#ifdef GZSTREAM
-#include <gzstream.h>
-#endif
 extern "C" {
 #include "utils.h"
+#include "xerrors.h"
 }
-#include <zlib.h>
-#include <stdio.h>
-#include "kseq.h"
-KSEQ_INIT(gzFile, gzread)
 
 using namespace std;
-using namespace __gnu_cxx;
+//using namespace __gnu_cxx;
 
 
 
@@ -116,30 +111,6 @@ typedef uint32_t word_int_t;
 // maximum number of occurrences of a single word
 #define MAX_WORD_OCC (UINT32_MAX)
 typedef uint32_t occ_int_t;
-
-uint8_t asc2dnacat[] = {
-    /*   0 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /*  16 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /*  32 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0,
-           /*                                        - */
-    /*  48 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /*  64 */ 0, 1, 2, 1, 2, 0, 0, 1, 2, 0, 0, 2, 0, 2, 2, 0,
-           /*    A  B  C  D        G  H        K     M  N */
-    /*  80 */ 0, 0, 2, 2, 1, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,
-           /*       R  S  T     V  W  X  Y */
-    /*  96 */ 0, 1, 2, 1, 2, 0, 0, 1, 2, 0, 0, 2, 0, 2, 2, 0,
-           /*    a  b  c  d        g  h        k     m  n */
-    /* 112 */ 0, 0, 2, 2, 1, 0, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,
-           /*       r  s  t     v  w  x  y */
-    /* 128 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 144 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 160 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 176 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 192 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 208 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 224 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    /* 240 */ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
 
 // values of the wordFreq map: word, its number of occurrences, and its rank
 struct word_stats {
@@ -154,13 +125,87 @@ struct Args {
    string inputFileName = "";
    int w = 10;            // sliding window size and its default 
    int p = 100;           // modulus for establishing stopping w-tuples 
-   bool SAinfo = false;   // compute SA information 
-   bool is_fasta = false;  // read a fasta file (strip nonACGTNs)
+   bool SAinfo = false;   // compute SA information
    bool compress = false; // parsing called in compress mode 
-   int th=0;              // number of helper threads
-   int verbose=0;         // verbosity level 
-   bool acgt_only = false;
+   int th=4;              // number of helper threads
+   int verbose=0;         // verbosity level
+   FILE *tmp_parse_file, *last_file, *sa_file; 
 };
+
+// -----------------------------------------------------------
+// struct containing the maps and the relative mutex
+struct MTmaps {
+   int mt_ratio = 3;                       // ratio between #maps and #threads 
+   int n;                                  // number of maps 
+   vector<map<uint64_t,word_stats>> maps;  // maps
+   pthread_mutex_t *muts;                  // mutex for each map
+   
+   // constructor
+   MTmaps(int numthreads) {
+     // init number of maps
+     n = mt_ratio*numthreads;
+     // init maps
+     maps.resize(n);
+     // init mutexes
+     muts = new pthread_mutex_t[n];
+     for(int i=0;i<n;i++) 
+       xpthread_mutex_init(&muts[i], NULL, __LINE__,__FILE__);
+   }
+   
+   // destructor
+   ~MTmaps() {
+     delete[] muts;
+   }
+   
+   // return the total size of the maps, ie total number of stored words
+   uint64_t size() {
+     uint64_t s=0;
+     for(int i=0;i<n;i++)
+       s += maps[i].size();
+     return s;
+   }
+   
+   // return the rank of the string associated to hash h
+   word_int_t rank(uint64_t h) {
+     return maps[h%n].at(h).rank;
+   }
+   
+  // add the association hash->w to the map hash%n
+  // using a mutex for exclusive write  
+  void update(uint64_t hash, string &w);
+      
+};
+
+void MTmaps::update(uint64_t hash, string &w) 
+{  
+  int i = hash % n;
+  map<uint64_t,word_stats> *freq = &maps[i];
+  pthread_mutex_t *m = &muts[i]; 
+  xpthread_mutex_lock(m,__LINE__,__FILE__);
+  // update frequency table for current hash
+  if(freq->find(hash)==freq->end()) {
+      (*freq)[hash].occ = 1; // new hash
+      (*freq)[hash].str = w; 
+  }
+  else {
+      word_stats *wfreq = &(*freq)[hash];  // pointer to the stats for w
+      wfreq->occ += 1; // known hash
+      if(wfreq->occ <=0) {
+        cerr << "Emergency exit! Maximum # of occurences of dictionary word (";
+        cerr<< MAX_WORD_OCC << ") exceeded\n";
+        exit(1);
+      }
+      if(wfreq->str != w) {
+        cerr << "Emergency exit! Hash collision for strings:\n";
+        cerr << wfreq->str << "\n  vs\n" <<  w << endl;
+        exit(1);
+      }
+  }
+  xpthread_mutex_unlock(m,__LINE__,__FILE__);
+}
+
+
+
 
 
 // -----------------------------------------------------------------
@@ -214,18 +259,13 @@ struct KR_window {
   } 
 
 };
+
 // -----------------------------------------------------------
-
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos);
-
-#ifndef NOTHREADS
-#include "newscan.hpp"
-#endif
-
 
 
 // compute 64-bit KR hash of a string 
 // to avoid overflows in 64 bit aritmethic the prime is taken < 2**55
+// if collisions occur use a prime close to 2**63 and 128 bit variables 
 uint64_t kr_hash(string s) {
     uint64_t hash = 0;
     //const uint64_t prime = 3355443229;     // next prime(2**31+2**30+2**27)
@@ -239,131 +279,9 @@ uint64_t kr_hash(string s) {
 }
 
 
-
-// save current word in the freq map and update it leaving only the 
-// last minsize chars which is the overlap with next word  
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
-{
-  assert(pos==0 || w.size() > minsize);
-  if(w.size() <= minsize) return;
-  // get the hash value and write it to the temporary parse file
-  uint64_t hash = kr_hash(w);
-  if(fwrite(&hash,sizeof(hash),1,tmp_parse_file)!=1) die("parse write error");
-
-#ifndef NOTHREADS
-  xpthread_mutex_lock(&map_mutex,__LINE__,__FILE__);
-#endif  
-  // update frequency table for current hash
-  if(freq.find(hash)==freq.end()) {
-      freq[hash].occ = 1; // new hash
-      freq[hash].str = w; 
-  }
-  else {
-      freq[hash].occ += 1; // known hash
-      if(freq[hash].occ <=0) {
-        cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
-        cerr<< MAX_WORD_OCC << ") exceeded\n";
-        exit(1);
-      }
-      if(freq[hash].str != w) {
-        cerr << "Emergency exit! Hash collision for strings:\n";
-        cerr << freq[hash].str << "\n  vs\n" <<  w << endl;
-        exit(1);
-      }
-  }
-#ifndef NOTHREADS
-  xpthread_mutex_unlock(&map_mutex,__LINE__,__FILE__);
-#endif
-  // output char w+1 from the end
-  if(fputc(w[w.size()- minsize-1],last)==EOF) die("Error writing to .last file");
-  // compute ending position +1 of current word and write it to sa file 
-  // pos is the ending position+1 of the previous word and is updated here 
-  if(pos==0) pos = w.size()-1; // -1 is for the initial $ of the first word
-  else pos += w.size() -minsize; 
-  if(sa) if(fwrite(&pos,IBYTES,1,sa)!=1) die("Error writing to sa info file");
-  // keep only the overlapping part of the window
-  w.erase(0,w.size() - minsize);
-}
+#include "pscan.hpp"
 
 
-
-// prefix free parse of file fnam. w is the window size, p is the modulus 
-// use a KR-hash as the word ID that is immediately written to the parse file
-uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
-{
-  //open a, possibly compressed, input file
-  string fnam = arg.inputFileName;
-  // open the 1st pass parsing file 
-  FILE *g = open_aux_file(arg.inputFileName.c_str(),EXTPARS0,"wb");
-  // open output file containing the char at position -(w+1) of each word
-  FILE *last_file = open_aux_file(arg.inputFileName.c_str(),EXTLST,"wb");  
-  // if requested open file containing the ending position+1 of each word
-  FILE *sa_file = NULL;
-  if(arg.SAinfo) 
-    sa_file = open_aux_file(arg.inputFileName.c_str(),EXTSAI,"wb");
-  
-  // main loop on the chars of the input file
-  int c;
-  uint64_t pos = 0; // ending position +1 of previous word in the original text, used for computing sa_info 
-  assert(IBYTES<=sizeof(pos)); // IBYTES bytes of pos are written to the sa info file 
-  // init first word in the parsing with a Dollar char 
-  string word("");
-  word.append(1,Dollar);
-  KR_window krw(arg.w);
-  std::string line;
-  if (arg.is_fasta) {
-      gzFile fp;
-      kseq_t *seq;
-      int l;
-      fp = gzopen(fnam.c_str(), "r");
-      seq = kseq_init(fp);
-      while ((l =  kseq_read(seq)) >= 0) {
-          for (size_t i = 0; i < seq->seq.l; i++) {
-              c = std::toupper(seq->seq.s[i]);
-              if (c <= Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-              word.append(1, c);
-              uint64_t hash = krw.addchar(c);
-              if (hash%arg.p==0) {
-                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-              }
-          }
-          if (c <= Dollar) break;
-      }    
-      kseq_destroy(seq);
-      gzclose(fp);
-  }
-  else {
-      #ifdef GZSTREAM 
-      igzstream f(fnam.c_str());
-      #else
-      ifstream f(fnam);
-      #endif    
-      if(!f.rdbuf()->is_open()) {// is_open does not work on igzstreams 
-        perror(__func__);
-        throw new std::runtime_error("Cannot open input file " + fnam);
-      }
-      while( (c = f.get()) != EOF ) {
-        if(c<=Dollar) {cerr << "Invalid char found in input file: no additional chars will be read\n"; break;}
-        word.append(1,c);
-        uint64_t hash = krw.addchar(c);
-        if(hash%arg.p==0) {
-          // end of word, save it and write its full hash to the output file
-          // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-        }    
-      }
-      f.close();
-  }
-  // virtually add w null chars at the end of the file and add the last word in the dict
-  word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
-  // close input and output files 
-  if(sa_file) if(fclose(sa_file)!=0) die("Error closing SA file");
-  if(fclose(last_file)!=0) die("Error closing last file");  
-  if(fclose(g)!=0) die("Error closing parse file");
-  if(pos!=krw.tot_char+arg.w) cerr << "Pos: " << pos << " tot " << krw.tot_char << endl;
-  return krw.tot_char;
-}
 
 // function used to compare two string pointers
 bool pstringCompare(const string *a, const string *b)
@@ -373,9 +291,8 @@ bool pstringCompare(const string *a, const string *b)
 
 // given the sorted dictionary and the frequency map write the dictionary and occ files
 // also compute the 1-based rank for each hash
-void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const string *> &sortedDict)
+void writeDictOcc(Args &arg, MTmaps &mtmaps, vector<const string *> &sortedDict)
 {
-  assert(sortedDict.size() == wfreq.size());
   FILE *fdict;
   // open dictionary and occ files
   if(arg.compress)
@@ -397,7 +314,7 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
     if(s!=len) die("Error writing to DICT file");
     if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to DICT file");
     uint64_t hash = kr_hash(*x);
-    auto& wf = wfreq.at(hash);
+    auto& wf = (mtmaps.maps[hash%mtmaps.n]).at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
     if(s!=1) die("Error writing to OCC file");
@@ -409,29 +326,30 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
   if(fclose(fdict)!=0) die("Error closing DICT file");
 }
 
-void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
+void remapParse(Args &arg, MTmaps &mtmaps)
 {
   // open parse files. the old parse can be stored in a single file or in multiple files
   mFile *moldp = mopen_aux_file(arg.inputFileName.c_str(), EXTPARS0, arg.th);
   FILE *newp = open_aux_file(arg.inputFileName.c_str(), EXTPARSE, "wb");
 
   // recompute occ as an extra check 
-  vector<occ_int_t> occ(wfreq.size()+1,0); // ranks are zero based 
+  vector<occ_int_t> occ(mtmaps.size()+1,0); // ranks are zero based 
   uint64_t hash;
   while(true) {
     size_t s = mfread(&hash,sizeof(hash),1,moldp);
     if(s==0) break;
     if(s!=1) die("Unexpected parse EOF");
-    word_int_t rank = wfreq.at(hash).rank;
+    word_int_t rank = mtmaps.rank(hash);
     occ[rank]++;
     s = fwrite(&rank,sizeof(rank),1,newp);
     if(s!=1) die("Error writing to new parse file");
   }
   if(fclose(newp)!=0) die("Error closing new parse file");
   if(mfclose(moldp)!=0) die("Error closing old parse segment");
-  // check old and recomputed occ coincide 
-  for(auto& x : wfreq)
-    assert(x.second.occ == occ[x.second.rank]);
+  // check old and recomputed occ coincide
+  for(auto &m : mtmaps.maps) 
+    for(auto& x : m)
+      assert(x.second.occ == occ[x.second.rank]);
 }
  
 
@@ -442,14 +360,9 @@ void print_help(char** argv, Args &args) {
   cout << "  Options: " << endl
         << "\t-w W\tsliding window size, def. " << args.w << endl
         << "\t-p M\tmodulo for defining phrases, def. " << args.p << endl
-        #ifndef NOTHREADS
-        << "\t-t M\tnumber of helper threads, def. none " << endl
-        #endif        
+        << "\t-t M\tnumber of helper threads, def. 4 " << endl
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute suffix array info" << endl;
-  #ifdef GZSTREAM
-  cout << "If the input file is gzipped it is automatically extracted\n";
-  #endif
   exit(1);
 }
 
@@ -464,10 +377,8 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fasht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:sht:vc") ) != -1) {
       switch(c) {
-        case 'a':
-        arg.acgt_only = true; break;
         case 's':
         arg.SAinfo = true; break;
         case 'c':
@@ -478,8 +389,6 @@ void parseArgs( int argc, char** argv, Args& arg ) {
         case 'p':
         sarg.assign( optarg );
         arg.p = stoi( sarg ); break;
-        case 'f':
-        arg.is_fasta = true; break;
         case 't':
         sarg.assign( optarg );
         arg.th = stoi( sarg ); break;
@@ -509,61 +418,45 @@ void parseArgs( int argc, char** argv, Args& arg ) {
      cout << "Modulus must be at leas 10\n";
      exit(1);
    }
-   #ifdef NOTHREADS
-   if(arg.th!=0) {
-     cout << "The NT version cannot use threads\n";
+   if(arg.th<=0) {
+     cout << "There must be at least one helper thread\n";
      exit(1);
    }
-   #else
-   if(arg.th<0) {
-     cout << "Number of threads cannot be negative\n";
-     exit(1);
-   }
-   #endif   
 }
 
 
 
 int main(int argc, char** argv)
 {
-  // translate command line parameters
+  // translate command line parameters and store them to arg 
   Args arg;
   parseArgs(argc, argv, arg);
   cout << "Windows size: " << arg.w << endl;
   cout << "Stop word modulus: " << arg.p << endl;  
-
+  
   // measure elapsed wall clock time
   time_t start_main = time(NULL);
-  time_t start_wc = start_main;  
-  // init sorted map counting the number of occurrences of each word
-  map<uint64_t,word_stats> wordFreq;  
+  time_t start_wc = start_main;
+  // init multithread maps 
+  MTmaps mtmaps(arg.th);
   uint64_t totChar;
 
   // ------------ parsing input file 
   try {
-      if(arg.th==0)
-        totChar = process_file(arg,wordFreq);
-      else {
-        #ifdef NOTHREADS
-        cerr << "Sorry, this is the no-threads executable and you requested " << arg.th << " threads\n";
-        exit(EXIT_FAILURE);
-        #else
-        totChar = mt_process_file(arg,wordFreq);
-        #endif
-      }
+    totChar = mt_process_file(arg,mtmaps);
   }
   catch(const std::bad_alloc&) {
       cout << "Out of memory (parsing phase)... emergency exit\n";
       die("bad alloc exception");
   }
   // first report 
-  uint64_t totDWord = wordFreq.size();
+  uint64_t totDWord = mtmaps.size();
   cout << "Total input symbols: " << totChar << endl;
   cout << "Found " << totDWord << " distinct words" <<endl;
   cout << "Parsing took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   // check # distinct words
   if(totDWord>MAX_DISTINCT_WORDS) {
-    cerr << "Emergency exit! The number of distinc words (" << totDWord << ")\n";
+    cerr << "Emergency exit! The number of distinct words (" << totDWord << ")\n";
     cerr << "is larger than the current limit (" << MAX_DISTINCT_WORDS << ")\n";
     exit(1);
   }
@@ -576,28 +469,32 @@ int main(int argc, char** argv)
   // fill array
   uint64_t sumLen = 0;
   uint64_t totWord = 0;
-  for (auto& x: wordFreq) {
-    sumLen += x.second.str.size();
-    totWord += x.second.occ;
-    dictArray.push_back(&x.second.str);
+  
+  // copy words from all maps to the dictionary
+  for(auto& wordFreq: mtmaps.maps) {
+    for(auto& x: wordFreq) {
+      sumLen += x.second.str.size();
+      totWord += x.second.occ;
+      dictArray.push_back(&x.second.str);
+    }
   }
   assert(dictArray.size()==totDWord);
   cout << "Sum of lenghts of dictionary words: " << sumLen << endl; 
   cout << "Total number of words: " << totWord << endl; 
+
   // sort dictionary
   sort(dictArray.begin(), dictArray.end(),pstringCompare);
   // write plain dictionary and occ file, also compute rank for each hash 
   cout << "Writing plain dictionary and occ file\n";
-  writeDictOcc(arg, wordFreq, dictArray);
+  writeDictOcc(arg, mtmaps, dictArray);
   dictArray.clear(); // reclaim memory
   cout << "Dictionary construction took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
     
   // remap parse file
   start_wc = time(NULL);
   cout << "Generating remapped parse file\n";
-  remapParse(arg, wordFreq);
+  remapParse(arg, mtmaps);
   cout << "Remapping parse file took: " << difftime(time(NULL),start_wc) << " wall clock seconds\n";  
   cout << "==== Elapsed time: " << difftime(time(NULL),start_main) << " wall clock seconds\n";        
   return 0;
 }
-

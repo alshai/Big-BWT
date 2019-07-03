@@ -4,9 +4,9 @@ CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
 # main executables 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pfbwt.x pfbwt64.x unparse
+EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pscan.x pfbwt.x pfbwt64.x unparse remap
 # executables not using threads (and therefore not needing the thread library)
-EXECS_NT=newscanNT.x pfbwtNT.x  pfbwtNT64.x
+EXECS_NT=newscanNT.x pfbwtNT.x pfbwtNT64.x
 
 # targets not producing a file declared phony
 .PHONY: all clean tarfile
@@ -41,8 +41,11 @@ newscanNT.x: newscan.cpp malloc_count.o utils.o
 newscan.x: newscan.cpp newscan.hpp malloc_count.o utils.o xerrors.o 
 	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -lz -pthread
 
+pscan.x: pscan.cpp pscan.hpp malloc_count.o utils.o xerrors.o 
+	$(CXX) $(CXX_FLAGS) -o $@ pscan.cpp malloc_count.o utils.o xerrors.o -ldl -pthread
 
-# prefix free BWT construction. malloc_count not used since not compatible with -pthread
+
+# prefix free BWT construction
 pfbwt.x: pfbwt.cpp pfthreads.hpp gsa/gsacak.o utils.o xerrors.o malloc_count.o
 	$(CXX) $(CXX_FLAGS) -o $@ pfbwt.cpp gsa/gsacak.o utils.o xerrors.o malloc_count.o -pthread -ldl
 
@@ -61,11 +64,14 @@ pfbwtNT64.x: pfbwt.cpp gsa/gsacak64.o utils.o malloc_count.o
 unparse: unparse.c utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl
 
+remap: remap.c
+	$(CC) $(CFLAGS) -o $@ $< -O -g -Wall -lm 
+
 %.o: %.c %.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 tarfile:
-		tar -zcf bigbwt.tgz bigbwt newscan.cpp newscan.hpp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c unparse.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
+		tar -zcf bigbwt.tgz bigbwt newscan.[ch]pp pscan.[ch]pp pfbwt.cpp pfthreads.hpp simplebwt.c bwtparse.c unparse.c remap.c makefile utils.[ch] xerrors.[ch] f2s.py gsa/gsacak.[ch] gsa/LICENSE gsa/README.md malloc_count.[ch]
 
 clean:
 	rm -f $(EXECS) $(EXECS_NT) *.o gsa/*.o

@@ -16,6 +16,7 @@
 #define EXTPARS0 "parse_old"
 #define EXTOCC   "occ"
 #define EXTDICT  "dict"
+#define EXTDICZ  "dicz"
 #define EXTLST   "last"
 #define EXTBWLST "bwlast"
 #define EXTSAI   "sai"

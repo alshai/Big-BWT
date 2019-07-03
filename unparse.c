@@ -16,7 +16,6 @@
 typedef struct {
    char *basename;
    char *outname;
-   int w;     // window size  
 } Args;
 
 
@@ -42,15 +41,12 @@ static void parseArgs(int argc, char** argv, Args *arg ) {
   puts("\n");
 
   arg->outname = NULL;
-  arg->w = 10;
-  while ((c = getopt( argc, argv, "hw:o:") ) != -1) {
+  while ((c = getopt( argc, argv, "ho:") ) != -1) {
     switch(c) {
       case 'o':
       arg->outname = strdup(optarg); break;
       case 'h':
          print_help(argv[0]); exit(1);
-      case 'w':
-         arg->w = atoi(optarg); break;
       case '?':
       puts("Unknown option. Use -h for help.");
       exit(1);
@@ -90,7 +86,7 @@ int main(int argc, char *argv[])
   time_t start_wc = time(NULL);
   
   // mmap dictionary file to memory
-  int dict_fd = fd_open_aux_file(arg.basename,EXTDICT,O_RDONLY);
+  int dict_fd = fd_open_aux_file(arg.basename,EXTDICZ,O_RDONLY);
   Dict = mmap_fd(dict_fd,&n);
   if(close(dict_fd)!=0) die("error closing dictionary file");
   // compute # words, change terminator, and save starting points
@@ -98,8 +94,7 @@ int main(int argc, char *argv[])
   Wstart = malloc(size*sizeof(*Wstart));
   if(Wstart==NULL) die("Allocation error");
   long words = 0;
-  assert(Dict[0]==Dollar);
-  Wstart[0] = 1; // first word starts at 1 since we skip Dollar
+  Wstart[0] = 0; // first word starts at Dict[0]
   for(long i=1;i<n;i++) {
     if(Dict[i]==EndOfWord) {
       Dict[i]=0; //replace EndOfWord with a real \0
@@ -111,8 +106,7 @@ int main(int argc, char *argv[])
       }
       Wstart[words] = i+1; // starting position of next word 
     }
-    else if(Dict[i]==Dollar) 
-      Dict[i]=0; // replace Dollars with 0s (they appear only at th end of the text) 
+    else assert(Dict[i]!=Dollar); // we don't expect Dollar's  
   }
   assert(Dict[Wstart[words]]==0); // last word is dummy
   fprintf(stderr,"Found %ld dictionary words\n",words);
@@ -128,8 +122,7 @@ int main(int argc, char *argv[])
     if(e==0 && feof(parse)) break; // done
     if(e!=1) die("Error reading parse file");
     if(w==0 || w-1>=words) die("Invalid word ID in the parse file");
-    if(w==1) s = Dict+1; // first word in the parsing except from the Dollar
-    else s = Dict + Wstart[w-1] + arg.w;
+    s = Dict + Wstart[w-1]; // dictionary word (correctly \0 terminated)
     e = fputs(s,f);
     if(e==EOF) die("Error writing to the output file"); 
   }
