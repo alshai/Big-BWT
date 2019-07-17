@@ -523,6 +523,15 @@ void parseArgs( int argc, char** argv, Args& arg ) {
 }
 
 
+bool is_gzipped(std::string fname) {
+    FILE* fp = fopen(fname.c_str(), "rb");
+    int byte1 = 0, byte2 = 0;
+    fread(&byte1, sizeof(char), 1, fp);
+    fread(&byte2, sizeof(char), 1, fp);
+    fclose(fp);
+    return (byte1 == 0x1f && byte2 == 0x8b);
+}
+
 
 int main(int argc, char** argv)
 {
@@ -540,6 +549,11 @@ int main(int argc, char** argv)
   uint64_t totChar;
 
   // ------------ parsing input file 
+  // force threads=0 if gzipped
+  if (is_gzipped(arg.inputFileName)) {
+      cerr << "input is gzipped, forcing single thread!" << endl;
+      arg.th = 0;
+  }
   try {
       if(arg.th==0)
         totChar = process_file(arg,wordFreq);
