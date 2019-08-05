@@ -46,7 +46,6 @@ def main():
   parser.add_argument('-v',  help='verbose',action='store_true')
   parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
   parser.add_argument('-f', help='read fasta',action='store_true')
-  parser.add_argument('-a', help='acgt only', action='store_true')
   parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
@@ -75,7 +74,6 @@ def main():
     if args.v: command += " -v"
     if args.parsing or args.compress: command += " -c"
     if args.f: command += " -f"
-    if args.a: command += " -a"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
       return

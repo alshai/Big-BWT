@@ -155,11 +155,10 @@ struct Args {
    int w = 10;            // sliding window size and its default 
    int p = 100;           // modulus for establishing stopping w-tuples 
    bool SAinfo = false;   // compute SA information 
-   bool is_fasta = false;  // read a fasta file (strip nonACGTNs)
+   bool is_fasta = false;  // read a fasta file 
    bool compress = false; // parsing called in compress mode 
    int th=0;              // number of helper threads
    int verbose=0;         // verbosity level 
-   bool acgt_only = false;
 };
 
 
@@ -464,10 +463,8 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fasht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fsht:v") ) != -1) {
       switch(c) {
-        case 'a':
-        arg.acgt_only = true; break;
         case 's':
         arg.SAinfo = true; break;
         case 'c':
