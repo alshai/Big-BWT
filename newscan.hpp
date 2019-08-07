@@ -228,7 +228,11 @@ void *mt_parse_fasta(void *dx)
 // use a KR-hash as the word ID that is written to the parse file
 uint64_t mt_process_file_fasta(Args& arg, map<uint64_t,word_stats>& wf)
 {
-  // get input file size and populate thread start positions
+
+  assert(arg.th>0);
+  pthread_t t[arg.th];
+  mt_data td[arg.th];
+  // scan file for start positions and execute threads
   FILE* fp = fopen(arg.inputFileName.c_str(), "r");
   if (fp == NULL) {
     throw new std::runtime_error("Cannot open input file " +arg.inputFileName);
@@ -246,24 +250,55 @@ uint64_t mt_process_file_fasta(Args& arg, map<uint64_t,word_stats>& wf)
   int IN_HEADER = 1;
   size_t true_pos = 0, file_pos = 0;
   int j = 0, pc = 0, c = 0;
-  while ( (j < arg.th) && ((c = fgetc(fp)) != EOF) ) {
+  // this loop scans the fasta file in order to properly divvy it up
+  // for the threads, so they they don't accidently start in a ">" header.
+  // As soon as a proper start and end position has been found, execute the thread
+  while ( ((c = fgetc(fp)) != EOF) ) {
     if (pc == '\n') IN_HEADER = (c == '>');
     if (file_pos == th_sts[j]) {
       if (IN_HEADER) th_sts[j]++;
       else {
-          true_starts[j] = true_pos;
-          if (j) true_ends[j-1] = true_pos;
-          ++j;
-          if (j && j < arg.th && th_sts[j-1] >= th_sts[j]) { // hopefully this never happens
-            th_sts[j] = file_pos + 1;
-          }
+        true_starts[j] = true_pos;
+        if (j) {
+          true_ends[j-1] = true_pos;
+          // prepare and execute thread j-1
+          td[j-1].wordFreq = &wf;
+          td[j-1].arg = &arg;
+          td[j-1].true_start = true_starts[j-1];
+          td[j-1].true_end = true_ends[j-1];
+          td[j-1].start = th_sts[j-1]; // range start
+          td[j-1].end = (j==arg.th) ? size : th_sts[j];
+          assert(td[j-1].end<=size);
+          td[j-1].parse = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,j-1,"wb");
+          td[j-1].last = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,j-1,"wb");
+          td[j-1].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,j-1,"wb") : NULL;
+          xpthread_create(&t[j-1],NULL,&mt_parse_fasta,&td[j-1],__LINE__,__FILE__);
+        }
+        ++j;
+        // check if previous thread spilled over computed start position of
+        // next thread only possible in rare situations.
+        if (j && j < arg.th && th_sts[j-1] >= th_sts[j]) { 
+          th_sts[j] = file_pos + 1;
+        }
       }
     }
     if (!IN_HEADER && c != '\n') ++true_pos;
     pc = c;
     ++file_pos;
   }
-  true_ends[arg.th - 1] = size;
+  assert(j == arg.th);
+  // execute the last thread
+  true_ends[j-1] = size;
+  td[j-1].wordFreq = &wf;
+  td[j-1].arg = &arg;
+  td[j-1].true_start = true_starts[j-1];
+  td[j-1].true_end = true_ends[j-1];
+  td[j-1].start = th_sts[j-1]; // range start
+  td[j-1].end = size;
+  td[j-1].parse = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,j-1,"wb");
+  td[j-1].last = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,j-1,"wb");
+  td[j-1].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,j-1,"wb") : NULL;
+  xpthread_create(&t[j-1],NULL,&mt_parse_fasta,&td[j-1],__LINE__,__FILE__);
   fclose(fp);
   // TODO: we might have a bunch of threads at the end that start at the same
   // position! this can happen in the following situation with >2 threads:
@@ -274,28 +309,6 @@ uint64_t mt_process_file_fasta(Args& arg, map<uint64_t,word_stats>& wf)
   // >HEADER4
   // I guess this is fine, since those threads aren't likely to  return
   // anything useful anyway
-
-  // prepare and execute threads
-  assert(arg.th>0);
-  pthread_t t[arg.th];
-  mt_data td[arg.th];
-  for(int i=0;i<arg.th;i++) {
-    td[i].wordFreq = &wf;
-    td[i].arg = &arg;
-    td[i].true_start = true_starts[i];
-    td[i].true_end = true_ends[i];
-    td[i].start = th_sts[i]; // range start
-    td[i].end = (i+1==arg.th) ? size : th_sts[i+1];
-    // cout << i << " " << td[i].true_start  << " " << td[i].start << " " << td[i].end << " " << size << endl;
-    assert(td[i].end<=size);
-    // open the 1st pass parsing file
-    td[i].parse = open_aux_file_num(arg.inputFileName.c_str(),EXTPARS0,i,"wb");
-    // open output file containing the char at position -(w+1) of each word
-    td[i].last = open_aux_file_num(arg.inputFileName.c_str(),EXTLST,i,"wb");
-    // if requested open file containing the ending position+1 of each word
-    td[i].sa = arg.SAinfo ?open_aux_file_num(arg.inputFileName.c_str(),EXTSAI,i,"wb") : NULL;
-    xpthread_create(&t[i],NULL,&mt_parse_fasta,&td[i],__LINE__,__FILE__);
-  }
 
   // wait for the threads to finish (in order) and close output files
   size_t tot_char=0;
