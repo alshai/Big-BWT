@@ -1,6 +1,7 @@
 extern "C" {
 #include "xerrors.h"
 }
+#include <vector>
 pthread_mutex_t map_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // struct shared via mt_parse
@@ -240,9 +241,9 @@ uint64_t mt_process_file_fasta(Args& arg, map<uint64_t,word_stats>& wf)
   fseek(fp, 0L, SEEK_END);
   size_t size = ftell(fp);
   rewind(fp);
-  size_t th_sts[arg.th];
-  size_t true_starts[arg.th];
-  size_t true_ends[arg.th];
+  std::vector<size_t> th_sts(arg.th);
+  std::vector<size_t> true_starts(arg.th);
+  std::vector<size_t> true_ends(arg.th);
   th_sts[0] = 0;
   for (int i = 1; i < arg.th; ++i) {
     th_sts[i] = (size_t) (size / arg.th) * i;
@@ -254,6 +255,7 @@ uint64_t mt_process_file_fasta(Args& arg, map<uint64_t,word_stats>& wf)
   // for the threads, so they they don't accidently start in a ">" header.
   // As soon as a proper start and end position has been found, execute the thread
   while ( ((c = fgetc(fp)) != EOF) ) {
+    if (j == arg.th) break;
     if (pc == '\n') IN_HEADER = (c == '>');
     if (file_pos == th_sts[j]) {
       if (IN_HEADER) th_sts[j]++;
