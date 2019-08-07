@@ -37,7 +37,7 @@ target_compile_options(newscanNT.x PUBLIC -DNOTHREADS)
 
 add_executable(newscan.x newscan.cpp malloc_count.c utils.c xerrors.c)
 target_link_libraries(newscan.x z dl pthread)
-target_compile_options(newscan.x PUBLIC -DNOTHREADS -DM64) 
+target_compile_options(newscan.x PUBLIC -DM64) 
 
 add_executable(pscan.x pscan.cpp pscan.hpp malloc_count.c utils.c xerrors.c)
 target_link_libraries(pscan.x dl pthread)
