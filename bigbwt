@@ -51,7 +51,7 @@ def main():
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
   args = parser.parse_args()
 
-  if args.f and (".fq" in args.input or ".fastq" in args.input or ".fnq" in args.input): 
+  if args.f and args.t > 0 and (".fq" in args.input or ".fastq" in args.input or ".fnq" in args.input): 
     print("bigbwt does not current support FASTQ format! Exiting...")
     return
 
