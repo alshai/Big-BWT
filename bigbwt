@@ -50,6 +50,11 @@ def main():
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
   args = parser.parse_args()
+
+  if args.f and (".fq" in args.input or ".fastq" in args.input or ".fnq" in args.input): 
+    print("bigbwt does not current support FASTQ format! Exiting...")
+    return
+
   if(args.S and (args.s or args.e)):
     print("You can either compute the full SA or a sample of it, not both. Exiting...")
     return
