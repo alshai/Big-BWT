@@ -165,38 +165,78 @@ struct Args {
 };
 
 
+uint8_t seq_nt4_ntoa_table[] = {
+    /*   0 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /*  16 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /*  32 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 5, 5,
+           /*                                        - */
+    /*  48 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /*  64 */ 5, 0, 5, 1, 5, 5, 5, 2, 5, 5, 5, 5, 5, 5, 0, 5,
+           /*    A  B  C  D        G  H        K     M  N */
+    /*  80 */ 5, 5, 5, 5, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+           /*       R  S  T     V  W  X  Y */
+    /*  96 */ 5, 0, 5, 1, 5, 5, 5, 2, 5, 5, 5, 5, 5, 5, 0, 5,
+           /*    a  b  c  d        g  h        k     m  n */
+    /* 112 */ 5, 5, 5, 5, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+           /*       r  s  t     v  w  x  y */
+    /* 128 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 144 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 160 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 176 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 192 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 208 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 224 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    /* 240 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+};
+
 // -----------------------------------------------------------------
+struct Wang_hash {
+    Wang_hash(int x): w(x) {
+        mask = (1ULL << 2 * w) - 1;
+    }
+    uint64_t addchar(char c) {
+        char x = seq_nt4_ntoa_table[(size_t) c];
+        if (x > 3) {fprintf(stderr, "non-ACGTN char encountered\n"); exit(1);}
+        kmer = (kmer << 2 | x) & mask;
+        return ++tot_char < w ? 1 : hash(kmer);
+    }
+
+    constexpr inline uint64_t hash(uint64_t key) {
+        key = (~key) + (key << 21); // key = (key << 21) - key - 1;
+        key = key ^ (key >> 24);
+        key = (key + (key << 3)) + (key << 8); // key * 265
+        key = key ^ (key >> 14);
+        key = (key + (key << 2)) + (key << 4); // key * 21
+        key = key ^ (key >> 28);
+        key = key + (key << 31);
+    return key;
+    }
+
+    size_t tot_char = 0;
+    uint64_t mask;
+    uint64_t kmer = 0;
+    size_t w;
+};
+
 struct KR2_hash { // cyclic hash instead of KR
-  KR2_hash(int w): wsize(w), window(w, 0), hf(w) { 
+  KR2_hash(int w): wsize(w), window(w, 0), hf(w, 64) { 
       initialize_hash();
   }
   void initialize_hash() {
-    asize = 256;
-    asize_pot = 1;
-    for(int i=1;i<wsize;i++)
-      asize_pot = (asize_pot*asize)% prime; 
+    for(int i=1;i<wsize;i++) hf.eat(0);
   }
+
   uint64_t addchar(int c) {
     int k = tot_char++ % wsize;
-    hash += (prime - (window[k]*asize_pot) % prime); // remove window[k] contribution
-    hash = (asize*hash + c) % prime;      //  add char i
-    // hf.update((char) window[k], (char) c);
-    // hash = hf.hashvalue;
+    hf.update((char) window[k], (char) c);
     window[k]=c;
-    return hash;
+    return hf.hashvalue;
   }
 
   uint64_t wsize;
   std::vector<char> window;
   uint64_t tot_char = 0;
-
-  const uint64_t prime = 1999999973;
-  int asize;
-  uint64_t asize_pot;   // asize^(wsize-1) mod prime
-  uint64_t hash = 0;
-
   KarpRabinHash<uint64_t, char> hf;
-
 };
 
 // class to maintain a window in a string and its KR fingerprint
@@ -352,7 +392,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   string word("");
   word.append(1,Dollar);
   // KR_window krw(arg.w);
-  KR2_hash krw(arg.w);
+  Wang_hash krw(arg.w);
   std::string line;
   if (arg.is_fasta) {
       gzFile fp;
