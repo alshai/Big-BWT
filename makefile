@@ -1,10 +1,10 @@
 # compilation flags
-CXX_FLAGS=-std=c++11 -O3 -Wall -Wextra -g
+CXX_FLAGS=-std=c++11 -Ofast -Wall -Wextra -g
 CFLAGS=-O3 -Wall -std=c99 -g
 CC=gcc
 
 # main executables 
-EXECS=bwtparse bwtparse64 simplebwt simplebwt64 newscan.x pscan.x pfbwt.x pfbwt64.x unparse remap
+EXECS=bwtparse bwtparse64 simplebwt simplebwt_fasta simplebwt64 newscan.x pscan.x pfbwt.x pfbwt64.x unparse remap
 # executables not using threads (and therefore not needing the thread library)
 EXECS_NT=newscanNT.x pfbwtNT.x pfbwtNT64.x
 
@@ -25,6 +25,9 @@ bwtparse: bwtparse.c gsa/gsacak.o utils.o malloc_count.o
 bwtparse64: bwtparse.c gsa/gsacak64.o utils.o malloc_count.o
 	$(CC) $(CFLAGS) -o $@ $^ -ldl -DM64
 
+simplebwt_fasta: simplebwt_fasta.c gsa/gsacak.o
+	$(CC) $(CFLAGS) -o $@ $^ -lz
+
 simplebwt: simplebwt.c gsa/gsacak.o
 	$(CC) $(CFLAGS) -o $@ $^
 
@@ -39,7 +42,7 @@ newscanNT.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -lz -ldl -DNOTHREADS
 
 newscan.x: newscan.cpp newscan.hpp malloc_count.o utils.o xerrors.o 
-	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -lz -pthread
+	$(CXX) $(CXX_FLAGS) -o $@ -DNOTHREADS newscan.cpp malloc_count.o utils.o xerrors.o -ldl -lz -pthread
 
 pscan.x: pscan.cpp pscan.hpp malloc_count.o utils.o xerrors.o 
 	$(CXX) $(CXX_FLAGS) -o $@ pscan.cpp malloc_count.o utils.o xerrors.o -ldl -pthread

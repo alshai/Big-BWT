@@ -103,6 +103,9 @@ extern "C" {
 #include <stdio.h>
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
+#include <functional>
+// #include "rollinghashcpp/cyclichash.h"
+#include "rollinghashcpp/rabinkarphash.h"
 
 using namespace std;
 using namespace __gnu_cxx;
@@ -163,6 +166,39 @@ struct Args {
 
 
 // -----------------------------------------------------------------
+struct KR2_hash { // cyclic hash instead of KR
+  KR2_hash(int w): wsize(w), window(w, 0), hf(w) { 
+      initialize_hash();
+  }
+  void initialize_hash() {
+    asize = 256;
+    asize_pot = 1;
+    for(int i=1;i<wsize;i++)
+      asize_pot = (asize_pot*asize)% prime; 
+  }
+  uint64_t addchar(int c) {
+    int k = tot_char++ % wsize;
+    hash += (prime - (window[k]*asize_pot) % prime); // remove window[k] contribution
+    hash = (asize*hash + c) % prime;      //  add char i
+    // hf.update((char) window[k], (char) c);
+    // hash = hf.hashvalue;
+    window[k]=c;
+    return hash;
+  }
+
+  uint64_t wsize;
+  std::vector<char> window;
+  uint64_t tot_char = 0;
+
+  const uint64_t prime = 1999999973;
+  int asize;
+  uint64_t asize_pot;   // asize^(wsize-1) mod prime
+  uint64_t hash = 0;
+
+  KarpRabinHash<uint64_t, char> hf;
+
+};
+
 // class to maintain a window in a string and its KR fingerprint
 struct KR_window {
   int wsize;
@@ -215,7 +251,7 @@ struct KR_window {
 };
 // -----------------------------------------------------------
 
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos);
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos, FILE* p2);
 
 #ifndef NOTHREADS
 #include "newscan.hpp"
@@ -238,16 +274,22 @@ uint64_t kr_hash(string s) {
 }
 
 
+uint64_t cpp_hash(string s) {
+    return std::hash<std::string>{}(s);
+}
+
+
 
 // save current word in the freq map and update it leaving only the
 // last minsize chars which is the overlap with next word
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos, FILE* p2)
 {
   assert(pos==0 || w.size() > minsize);
   if(w.size() <= minsize) return;
   // get the hash value and write it to the temporary parse file
-  uint64_t hash = kr_hash(w);
+  uint64_t hash = cpp_hash(w);
   if(fwrite(&hash,sizeof(hash),1,tmp_parse_file)!=1) die("parse write error");
+  fprintf(p2, "%s\n", w.data()); 
 
 #ifndef NOTHREADS
   xpthread_mutex_lock(&map_mutex,__LINE__,__FILE__);
@@ -298,6 +340,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   FILE *last_file = open_aux_file(arg.inputFileName.c_str(),EXTLST,"wb");
   // if requested open file containing the ending position+1 of each word
   FILE *sa_file = NULL;
+  FILE *p2_file = fopen((arg.inputFileName + ".parse2").data(), "w");
   if(arg.SAinfo)
     sa_file = open_aux_file(arg.inputFileName.c_str(),EXTSAI,"wb");
 
@@ -308,7 +351,8 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
   // init first word in the parsing with a Dollar char
   string word("");
   word.append(1,Dollar);
-  KR_window krw(arg.w);
+  // KR_window krw(arg.w);
+  KR2_hash krw(arg.w);
   std::string line;
   if (arg.is_fasta) {
       gzFile fp;
@@ -323,7 +367,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
               word.append(1, c);
               uint64_t hash = krw.addchar(c);
               if (hash%arg.p==0) {
-                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos,p2_file);
               }
           }
           if (c <= Dollar) break;
@@ -348,14 +392,14 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
         if(hash%arg.p==0) {
           // end of word, save it and write its full hash to the output file
           // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos,p2_file);
         }
       }
       f.close();
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos, p2_file);
   // close input and output files
   if(sa_file) if(fclose(sa_file)!=0) die("Error closing SA file");
   if(fclose(last_file)!=0) die("Error closing last file");
@@ -384,10 +428,13 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
   FILE *focc = open_aux_file(arg.inputFileName.c_str(),EXTOCC,"wb");
 
   word_int_t wrank = 1; // current word rank (1 based)
+  double avg_len = 0;
+  size_t nseqs = 0;
   for(auto x: sortedDict) {
     const char *word = (*x).data();       // current dictionary word
     int offset=0; size_t len = (*x).size();  // offset and length of word
     assert(len>(size_t)arg.w);
+    ++nseqs; avg_len += len;
     if(arg.compress) {  // if we are compressing remove overlapping and extraneous chars
       len -= arg.w;     // remove the last w chars
       if(word[0]==Dollar) {offset=1; len -= 1;} // remove the very first Dollar
@@ -395,7 +442,7 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
     size_t s = fwrite(word+offset,1,len, fdict);
     if(s!=len) die("Error writing to DICT file");
     if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to DICT file");
-    uint64_t hash = kr_hash(*x);
+    uint64_t hash = cpp_hash(*x);
     auto& wf = wfreq.at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
@@ -406,6 +453,8 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
   if(fputc(EndOfDict,fdict)==EOF) die("Error writing EndOfDict to DICT file");
   if(fclose(focc)!=0) die("Error closing OCC file");
   if(fclose(fdict)!=0) die("Error closing DICT file");
+  avg_len = avg_len / nseqs;
+  fprintf(stderr, "average phrase length: %.2f\n", avg_len);
 }
 
 void remapParse(Args &arg, map<uint64_t,word_stats> &wfreq)
