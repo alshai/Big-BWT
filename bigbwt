@@ -20,8 +20,10 @@ check the correctness of the BWT by some other means (for example inverting it)
 """
 
 dirname = os.path.dirname(os.path.abspath(__file__))
-parse_exe       =  os.path.join(dirname, "newscan.x")
-parseNT_exe     =  os.path.join(dirname, "newscanNT.x")
+# parse_exe       =  os.path.join(dirname, "newscan.x")
+# parseNT_exe     =  os.path.join(dirname, "newscanNT.x")
+parse_exe       =  os.path.join(dirname, "parse")
+parseNT_exe     =  os.path.join(dirname, "parse")
 parsebwt_exe    =  os.path.join(dirname, "bwtparse")
 parsebwt_exe64  =  os.path.join(dirname, "bwtparse64")
 pfbwt_exe       =  os.path.join(dirname, "pfbwt.x")
@@ -67,6 +69,7 @@ def main():
     
     # ---------- parsing of the input file 
     start0 = start = time.time()
+    """
     if args.t>0:
       command = "{exe} {file} -w {wsize} -p {modulus} -t {th}".format(
               exe = os.path.join(args.bigbwt_dir,parse_exe),
@@ -75,6 +78,12 @@ def main():
       command = "{exe} {file} -w {wsize} -p {modulus}".format(
               exe = os.path.join(args.bigbwt_dir,parseNT_exe),
               wsize=args.wsize, modulus = args.mod, file=args.input)
+    """
+    if args.t > 0: 
+        print("threading disabled temporarily!")
+    command = "{exe} {file} -w {wsize} -p {modulus}".format(
+            exe = os.path.join(args.bigbwt_dir,parseNT_exe),
+            wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
     if args.parsing or args.compress: command += " -c"
