@@ -14,7 +14,8 @@ KSEQ_INIT(gzFile, gzread);
 extern "C" {
 #include "utils.h"
 }
-#include "hash.h"
+#include "hash.hpp"
+
 
 struct Args {
     std::string in_fname;
@@ -23,67 +24,23 @@ struct Args {
     bool sai = false;
 };
 
-extern uint8_t seq_nt4_ntoa_table[];
-
 struct Freq {
     Freq(uint32_t x) : n(x) {}
     uint32_t n = 0;
     uint32_t r = 0;
 };
 
-struct WangHash {
-    WangHash(size_t w) :
-        k(w),
-        mask((1ULL << 2 * k) - 1)
-    {}
-
-    uint64_t update(char c) {
-        char x = seq_nt4_ntoa_table[(size_t) c];
-        if (x > 3) { fprintf(stderr, "error, invalid character %c\n", x); exit(1);}
-        kmer = ((kmer << 2) | x) & mask;
-        hash = wang_hash(kmer);
-        return hash;
-    }
-
-    uint64_t hashvalue() { return hash; }
-
-    size_t k;
-    uint64_t kmer = 0;
-    uint64_t mask;
-    uint64_t hash;
-};
-
-/* TODO finish this
-struct KRHash {
-    KRHash(size_t wsize) : 
-        window(wsize,0), 
-        k(wsize) { }
-
-    uint64_t update(char c) {
-        window[i] = c;
-        i = (i+1) % k;
-        return 1;
-    }
-
-    uint64_t hashvalue() { return hash; }
-
-    std::vector<char> window;
-    int k = 10;
-    int i = 0;
-    uint64_t hash = 0;
-};
-*/
-
-using FreqMap=std::map<std::string, Freq>;
+typedef std::map<std::string, Freq> FreqMap;
 
 template <typename Hasher>
 class Parser {
 
     public: 
 
-    Parser(int wsize, int pmod) :
-        w(wsize),
-        p(pmod) { }
+    Parser(size_t wsize, size_t pmod) {
+        set_w(wsize);
+        set_p(pmod);
+    }
 
     void parse_fasta(const char* fname, const bool sai = false) {
         FILE* last_fp = open_aux_file(fname, EXTLST, "wb");
@@ -130,7 +87,8 @@ class Parser {
     }
 
     // assigns lexicographic rankings to items in dictionary
-    // if fname is provided, dumps dictionary and occs to file
+    // if fname is provided, dumps dictionary and occs to files
+    // fname.dict and fname.occ
     void update_dict(const char* fname = NULL) {
         std::vector<const char*> dict_phrases;
         dict_phrases.reserve(freqs.size());
@@ -170,6 +128,9 @@ class Parser {
         }
     }
 
+    /* dumps lexicographic ranks of phrases in the parse
+     * to fname.parse
+     */
     void dump_parse(const char* fname) {
         FILE* parse_fp = open_aux_file(fname, EXTPARSE, "wb");
         for (auto phrase: phrase_order) {
@@ -181,6 +142,40 @@ class Parser {
         else fprintf(stderr, "PARSE written to %s.%s\n", fname, EXTPARSE);
         return;
     }
+
+    void clear() {
+        freqs.clear();
+        phrase_order.clear();
+    }
+
+    size_t set_w(size_t x) {
+        if (x < 32) w = x;
+        else {
+            fprintf(stderr, "window size w must be < 32!\n");
+            exit(1);
+        }
+        fprintf(stderr, "w reset. clearing Parser\n");
+        clear();
+        return w;
+    }
+
+    size_t set_p(size_t x) {
+        p = x;
+        fprintf(stderr, "p reset. clearing Parser\n");
+        clear();
+        return p;
+    }
+
+    void bwt_of_parse(const char* fname = NULL) {
+        (void) fname;
+        return;
+    }
+
+    void dump_ilist(const char* fname) {
+        (void) fname;
+        return;
+    }
+
 
     private:
 
@@ -200,7 +195,7 @@ class Parser {
 
     FreqMap freqs;
     std::vector<const char*> phrase_order;
-    int w, p;
+    size_t w, p;
 };
 
 

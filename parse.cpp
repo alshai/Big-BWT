@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <chrono>
 #include <getopt.h>
+#include "hash.hpp"
 #include "parse.hpp"
 
 struct Timer {
