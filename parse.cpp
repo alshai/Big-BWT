@@ -46,7 +46,7 @@ uint8_t seq_nt4_ntoa_table[] = {
     /* 240 */ 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 };
 
-void print_help() { 
+void print_help() {
     fprintf(stderr, "Usage:\n\t./parse [options] <fasta file>\n");
     fprintf(stderr, "Options:\n-w\twindow size\n-p\tstop word modulus\n-s\tprint SA info\n");
 }
@@ -109,16 +109,27 @@ int main(int argc, char** argv) {
     // build the dictionary and populate .last, .sai and .parse_old
     Parser<WangHash> p(args.w, args.p);
     {
-        Timer t("Task\tParsing\t");
+        Timer t("TASK\tParsing\t");
         p.parse_fasta(args.in_fname.data(), args.sai);
     }
     {
-        Timer t("Task\tSorting/Update\t");
+        Timer t("TASK\tsorting dict, calculating occs\t");
         p.update_dict(args.in_fname.data());
     }
     {
-        Timer t("Task\tParseDump\t");
+        Timer t("TASK\tRanking parse\t");
+        p.generate_parse_ranks();
+    }
+    {
+        Timer t("TASK\tbwt-ing parse and processing last-chars\t");
+        p.bwt_of_parse();
+    }
+    {
+        Timer t("TASK\tdumping files needed by pfbwt\t");
         p.dump_parse(args.in_fname.data());
+        p.dump_last(args.in_fname.data());
+        p.dump_bwtlast(args.in_fname.data());
+        p.dump_ilist(args.in_fname.data());
     }
     return 0;
 }

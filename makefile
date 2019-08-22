@@ -31,8 +31,8 @@ simplebwt: simplebwt.c gsa/gsacak.o
 simplebwt64: simplebwt.c gsa/gsacak64.o
 	$(CC) $(CFLAGS) -o $@ $^ -DM64
 
-parse: parse.cpp utils.o parse.hpp
-	$(CXX) $(CXX_FLAGS) -o $@ parse.cpp utils.o -lz
+parse: parse.cpp utils.o gsa/gsacak.o parse.hpp
+	$(CXX) $(CXX_FLAGS) -o $@ parse.cpp utils.o gsa/gsacak.o -lz
 
 newscanNT.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -o $@ $^ -lz -ldl -DNOTHREADS

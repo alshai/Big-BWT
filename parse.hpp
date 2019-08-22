@@ -8,11 +8,13 @@
 #include <vector>
 #include <algorithm>
 #include <map>
+#include <cassert>
 #include <zlib.h>
 #include <kseq.h>
 KSEQ_INIT(gzFile, gzread);
 extern "C" {
 #include "utils.h"
+#include "gsa/gsacak.h"
 }
 #include "hash.hpp"
 
@@ -30,12 +32,13 @@ struct Freq {
     uint32_t r = 0;
 };
 
-typedef std::map<std::string, Freq> FreqMap;
+using FreqMap = std::map<std::string, Freq>;
 
 template <typename Hasher>
 class Parser {
+    using sa_index_t = uint_t;
 
-    public: 
+    public:
 
     Parser(size_t wsize, size_t pmod) {
         set_w(wsize);
@@ -43,7 +46,6 @@ class Parser {
     }
 
     void parse_fasta(const char* fname, const bool sai = false) {
-        FILE* last_fp = open_aux_file(fname, EXTLST, "wb");
         FILE* sa_fp = NULL;
         if (sai) sa_fp = open_aux_file(fname, EXTSAI, "wb");
         // FILE* old_parse_fp = open_aux_file(fname, "parse2", "w");
@@ -62,7 +64,7 @@ class Parser {
                 if (hf.hashvalue() % p == 0) {
                     // fprintf(old_parse_fp, "%s\n", phrase.data());
                     pos = pos ? pos+phrase.size()-w : phrase.size()-1;
-                    process_phrase(phrase, last_fp, sa_fp, &pos);
+                    process_phrase(phrase, sa_fp, &pos);
                     phrase.erase(0, phrase.size()-w);
                 }
             }
@@ -71,14 +73,12 @@ class Parser {
         phrase.append(w, Dollar);
         // fprintf(old_parse_fp, "%s\n", phrase.data());
         pos = pos ? pos+phrase.size()-w : phrase.size()-1;
-        process_phrase(phrase, last_fp, sa_fp, &pos);
+        process_phrase(phrase, sa_fp, &pos);
 
         kseq_destroy(seq);
         gzclose(fp);
         // if (fclose(old_parse_fp)) die("error closing PARSE2 file\n");
         // else fprintf(stderr, "PARSE2 file written to %s.parse2\n", fname);
-        if (fclose(last_fp)) die("error closing LAST file\n");
-        else fprintf(stderr, "LAST file written to %s.%s\n", fname, EXTLST);
         if (sai) {
             if (fclose(sa_fp)) die("error closing SAI file\n");
             else (fprintf(stderr, "SAI file written to %s.%s\n", fname, EXTSAI));
@@ -87,8 +87,7 @@ class Parser {
     }
 
     // assigns lexicographic rankings to items in dictionary
-    // if fname is provided, dumps dictionary and occs to files
-    // fname.dict and fname.occ
+    // and creates occ array
     void update_dict(const char* fname = NULL) {
         std::vector<const char*> dict_phrases;
         dict_phrases.reserve(freqs.size());
@@ -105,11 +104,14 @@ class Parser {
             dict_fp = open_aux_file(fname, EXTDICT, "wb");
             occ_fp  = open_aux_file(fname, EXTOCC, "wb");
         }
+        occs.clear();
+        occs.reserve(dict_phrases.size());
         size_t rank = 1;
         for (auto x: dict_phrases) {
             // access dictionary and write occ to occ file
             auto& wf = freqs.at(x);
             wf.r = rank++;
+            occs.push_back(wf.n);
             if (fname != NULL) {
                 if (fwrite(x, 1, strlen(x), dict_fp) != strlen(x))
                     die("Error writing to DICT file\n");
@@ -128,24 +130,78 @@ class Parser {
         }
     }
 
+    void generate_parse_ranks() {
+        if (!freqs.size()) {
+            fprintf(stderr, "dictionary not created yet! run update_dict\n");
+            exit(1);
+        }
+        clear_parse_ranks();
+        parse_ranks.reserve(parse.size());
+        occs.reserve(parse.size());
+        for (auto phrase: parse) {
+            auto wf = freqs.at(std::string(phrase));
+            parse_ranks.push_back(wf.r);
+        }
+    }
+
     /* dumps lexicographic ranks of phrases in the parse
      * to fname.parse
      */
     void dump_parse(const char* fname) {
-        FILE* parse_fp = open_aux_file(fname, EXTPARSE, "wb");
-        for (auto phrase: phrase_order) {
-            auto wf = freqs.at(std::string(phrase));
-            if (fwrite(&wf.r, sizeof(wf.r), 1, parse_fp) != 1)
-                die("Error writing to new parse file");
+        if (!parse_ranks.size()) {
+            generate_parse_ranks();
         }
+        size_t n = parse_ranks.size();
+        FILE* parse_fp = open_aux_file(fname, EXTPARSE, "wb");
+        n = parse_ranks[n-1] ? n : n-1;
+        if (fwrite(parse_ranks.data(), sizeof(parse_ranks[0]), n, parse_fp) != n)
+            die("error writing to PARSE");
         if (fclose(parse_fp)) die("Error closing PARSE file");
         else fprintf(stderr, "PARSE written to %s.%s\n", fname, EXTPARSE);
-        return;
+    }
+
+    void dump_last(const char* fname) {
+        FILE* last_fp = open_aux_file(fname, EXTLST, "wb");
+        if (fwrite(last.data(), sizeof(last[0]), last.size(), last_fp) != last.size())
+            die("error writing to LAST");
+        if (fclose(last_fp)) die("error closing LAST file\n");
+        else fprintf(stderr, "LAST file written to %s.%s\n", fname, EXTLST);
+    }
+
+    void dump_occs(const char* fname) {
+        fprintf(stderr, "writing occ file...\n");
+        FILE* occ_fp = open_aux_file(fname, EXTOCC, "wb");
+        if (fwrite(occs.data(), sizeof(occs[0]), occs.size(), occ_fp) != occs.size())
+            die("error writing to OCC");
+        if (fclose(occ_fp)) die("Error closing OCC file");
+        else fprintf(stderr, "OCC written to %s.%s\n", fname, EXTOCC);
+    }
+
+    void clear_dict() {
+        freqs.clear();
+    }
+
+    void clear_parse() {
+        parse.clear();
+    }
+
+    void clear_parse_ranks() {
+        parse_ranks.clear();
+    }
+
+    void clear_occ() {
+        occs.clear();
+    }
+
+    void clear_last() {
+        last.clear();
     }
 
     void clear() {
-        freqs.clear();
-        phrase_order.clear();
+        clear_dict();
+        clear_parse();
+        clear_parse_ranks();
+        clear_last();
     }
 
     size_t set_w(size_t x) {
@@ -166,35 +222,110 @@ class Parser {
         return p;
     }
 
-    void bwt_of_parse(const char* fname = NULL) {
-        (void) fname;
-        return;
+    // generates bwtlast and ilist
+    void bwt_of_parse() {
+        size_t n; // size of parse_ranks, minus the last EOS character
+        // TODO: support large parse sizes
+        if (parse_ranks.size() > 0x7FFFFFFE) {
+            fprintf(stderr, "currently no support for texts w/ > 2^31-2 phrases\n");
+            exit(1);
+        }
+        // add EOS if it's not already there
+        if (parse_ranks[parse_ranks.size()-1]) {
+            n = parse_ranks.size();
+            parse_ranks.push_back(0);
+        } else n = parse_ranks.size() - 1;
+        // TODO: calculate k
+        size_t k = 0;
+        for (size_t i = 0; i < n; ++i) {
+            k = parse_ranks[i] > k ? parse_ranks[i] : k;
+        }
+        // compute S.A.
+        // we assign instead of reserve in order to be able to use .size()
+        std::vector<sa_index_t> SA(n+1, 0);
+        fprintf(stderr, "Computing S.A. of size %ld over an alphabet of size %ld\n",n+1,k+1);
+        int depth = sacak_int(parse_ranks.data(), SA.data(), n+1, k+1);
+        if(depth>=0) fprintf(stderr, "S.A. computed with depth: %d\n", depth);
+        else die("Error computing the S.A.");
+        // transform S.A. to BWT in place
+        assert(SA[0] == n);
+        SA[0] = parse_ranks[n-1];
+        bwtlast.clear();
+        bwtlast.reserve(n+1);
+        bwtlast.push_back(last[n-2]);
+        // TODO: fill bwtsai here
+        for (size_t i = 1; i < n+1; ++i) {
+            if (!SA[i]) {
+                SA[i] = 0;
+                bwtlast.push_back(0);
+                // TODO: write to bwtsai
+            } else {
+                if (SA[i] == 1) {
+                    bwtlast.push_back(last[n-1]);
+                } else {
+                    bwtlast.push_back(last[SA[i]-2]);
+                }
+                // TODO: write to bwtsai
+                SA[i] = parse_ranks[SA[i] - 1];
+            }
+        }
+        // in bwtparse, S.A. is copied to BWT (ie. text);
+        // here, we keep on using S.A., since nothing is begin modified 
+        // BWT = BWTSA = S.A.
+        std::vector<uint32_t> F(occs.size()+1, 0);
+        F[1] = 1;
+        for (size_t i = 2; i < occs.size() + 1; ++i) {
+            F[i] = F[i-1] + occs[i-2];
+        }
+        assert(F[occs.size()] + occs[occs.size()-1] == n+1);
+        ilist.resize(n+1, 0);
+        for (size_t i = 0; i < n + 1; ++i) {
+            ilist[F[SA[i]]++] = i;
+        }
+        assert(ilist[0]==1);
+        assert(SA[ilist[0]] == 0);
+    }
+
+    void dump_bwtlast(const char* fname) {
+        FILE* bwtlast_fp = open_aux_file(fname, EXTBWLST, "wb");
+        if (fwrite(bwtlast.data(), sizeof(char), bwtlast.size(), bwtlast_fp) != bwtlast.size() ) {
+            die("could not write BWTLST");
+        }
+        if (fclose(bwtlast_fp)) die("failed writing to BWTLST");
+        else fprintf(stderr, "BWTLAST written to %s.%s\n", fname, EXTBWLST);
+
     }
 
     void dump_ilist(const char* fname) {
-        (void) fname;
-        return;
+        FILE* ilist_fp = open_aux_file(fname, EXTILIST, "wb");
+        if (fwrite(ilist.data(), sizeof(ilist[0]), ilist.size(), ilist_fp) != ilist.size() ) {
+            die("could not write ILIST");
+        }
+        if (fclose(ilist_fp)) die("failed writing to EXTILIST");
+        else fprintf(stderr, "ilist written to %s.%s\n", fname, EXTILIST);
     }
 
 
     private:
 
-    void inline process_phrase(const std::string& phrase, FILE* last_fp=NULL, FILE* sa_fp=NULL, uint64_t* pos=NULL) {
+    void inline process_phrase(const std::string& phrase, FILE* sa_fp=NULL, uint64_t* pos=NULL) {
         auto ret = freqs.insert({phrase, Freq(1)});
         if (!ret.second) ret.first->second.n += 1;
-        phrase_order.push_back(ret.first->first.data());
-        if (last_fp != NULL){
-            if (fputc(phrase[phrase.size()-w-1], last_fp) == EOF) 
-                die("error writing to .last file\n");
-        }
+        parse.push_back(ret.first->first.data());
+        last.push_back(phrase[phrase.size()-w-1]);
         if (sa_fp != NULL) {
-            if(fwrite(pos, IBYTES, 1, sa_fp) != 1) 
+            if(fwrite(pos, IBYTES, 1, sa_fp) != 1)
                 die("error writing to .sai file\n");
         }
     }
 
     FreqMap freqs;
-    std::vector<const char*> phrase_order;
+    std::vector<const char*> parse;
+    std::vector<uint32_t> occs;
+    std::vector<uint32_t> parse_ranks;
+    std::vector<char> last;
+    std::vector<char> bwtlast;
+    std::vector<uint32_t> ilist;
     size_t w, p;
 };
 
