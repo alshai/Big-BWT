@@ -51,23 +51,24 @@ class pfbwt {
         FILE* bwt_fp = open_aux_file(prefix.data(), "bwt", "wb");
         sort_dict_suffixes(true); // build SA and lcp
         // start from SA item that's not EndOfWord or EndOfDict
-        size_t suff_len, wordi, ilist_pos;
+        size_t next, suff_len, wordi, ilist_pos;
         uint8_t bwtc, pbwtc = Dollar;
         size_t easy_cases = 0, hard_cases = 0;
-        for (size_t i = dwords+w+1; i<dsize; ++i) { 
+        for (size_t i = dwords+w+1; i<dsize; i=next) { 
+            next = i+1;
             get_word_suflen(sa[i], wordi, suff_len);
             if (suff_len <= w) continue; // ignore small suffixes
             // full word case
             if (sa[i] == 0 || dict_idx[sa[i]-1] == 1) {
                 auto word_ilist = get_word_ilist(wordi);
                 for (auto j: word_ilist) {
+                    // fprintf(stderr, "%lu %lu\n", wordi, j);
                     bwtc = bwlast[j];
-                    fprintf(stderr, "%llu\n", j);
                     // TODO: do SA/DA/etc stuff here,
                     // TODO: uncomment this next line
                     // if (fputc(bwtc, bwt_fp) == EOF) die("error writing to bwt file");
                     pbwtc = bwtc; // for SA
-                }
+                } 
                 ++easy_cases;
             } else { // hard case!
                 // look at all the sufs that share LCP[suf]==this_suffixlen
@@ -75,36 +76,40 @@ class pfbwt {
                 std::vector<uint8_t> chars;
                 std::vector<uint64_t> words;
                 uint8_t c, pc = dict[sa[i]-1];
-                chars.push_back(c);
+                chars.push_back(pc);
                 words.push_back(wordi);
                 bool same_char = true;
-                for (size_t j = i+1; j < dsize && lcp[j] == (int_t) suff_len; ++j) {
-                    // get_word_suflen(sa[j], nwordi, nsuff_len);
-                    if (nsuff_len != suff_len) die("something went wrong!\n");
+                size_t j;
+                for (j = i + 1; j < dsize && lcp[j] >= (int_t) suff_len; ++j) {
+                    get_word_suflen(sa[j], nwordi, nsuff_len);
+                    if (nsuff_len != suff_len) die("something went wrong!");
                     c = dict[sa[j]-1];
-                    // chars.push_back(c);
-                    // words.push_back(nwordi);
-                    same_char = c == pc;
+                    chars.push_back(c);
+                    words.push_back(nwordi);
+                    same_char = (c == pc);
                     pc = c;
-                }
+                } // everything seemingly good up till here.
+                next = j;
                 if (same_char) {
-                    // fprintf(stderr, "non-full-word, easy case\n");
+                    for (auto x = 0; x < chars.size(); ++x) {
+                        fprintf(stderr, "%c %lu\n", chars[x], words[x]);
+                    }
                     ++easy_cases;
                 } else {
                     /*
                     std::vector<SuffixT> suffs;
-                    for (int j = 0; j < words.size(); ++j) {
+                    for (int idx = 0; idx < words.size(); ++idx) {
                         // get ilist of each of these words, make a heap
-                        for (auto k: get_word_ilist(words[j])) {
-                            suffs.push_back(SuffixT(chars[j], k));
+                        for (auto word: get_word_ilist(words[idx])) {
+                            suffs.push_back(SuffixT(chars[idx], word));
                         }
                     }
+                    */
                     // std::sort(suffs.begin(), suffs.end());
                     // fprintf(stderr, "-----\n");
                     // for (auto s: suffs) {
                     //     fprintf(stderr, "%llu %c\n", s.bwtp, s.bwtc);
                     // }
-                    */
                     ++hard_cases;
                 }
                 chars.clear();
@@ -125,7 +130,6 @@ class pfbwt {
      */
     void sort_dict_suffixes(bool build_lcp = true) {
         if (dsize < 1) die("error: dictionary not loaded\n");
-        fprintf(stderr, "running gsacak\n");
         sa.resize(dsize);
         lcp.resize(dsize);
         if (build_lcp) 
@@ -177,8 +181,6 @@ class pfbwt {
                 x += 1;
             }
         }
-        fprintf(stderr, "dict[0]: %c\n", dict[0]);
-        fprintf(stderr, "words found in dict: %d\n", x);
     }
 
     void load_ilist_idx(std::string fname) {
@@ -220,7 +222,6 @@ class pfbwt {
             die("error reading ilist file");
         }
         fclose(ilist_fp);
-        fprintf(stderr, "ilist contains %lu elements\n", nelems);
     }
 
     void load_bwlast(std::string fname) {
@@ -245,12 +246,13 @@ class pfbwt {
         auto endpos = ilist_idx_select(wordi+1);
         std::vector<size_t> v;
         v.reserve(endpos - startpos + 1);
-        for (size_t j = startpos; j < endpos+1; ++j)
+        for (size_t j = startpos+1; j < endpos+2; ++j)
             v.push_back(ilist[j]);
+        // fprintf(stderr, "%lu %lu\n", startpos+1, endpos+1);
         return v;
     }
 
-    size_t w; // word size of parser
+    size_t w=10; // word size of parser
     // note: can be malloc'd (malloc_dict) or mmap'd (mmap_dict)
     uint8_t* dict; // dict word array (word ends represented by EndOfWord)
     bool mmapped = false;
