@@ -148,6 +148,7 @@ class pfbwt {
         }
         sdsl::util::init_support(dict_idx_rank, &dict_idx);
         sdsl::util::init_support(dict_idx_select, &dict_idx);
+        dict[0] = 0;
     }
 
     void load_files(std::string prefix) {
@@ -184,7 +185,6 @@ class pfbwt {
                 x += 1;
             }
         }
-        // dict[0] = 0;
     }
 
     void load_ilist_idx(std::string fname) {
