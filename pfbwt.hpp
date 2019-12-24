@@ -43,7 +43,7 @@ class pfbwt {
 
 #define get_word_suflen(i, d, s) \
     d = dict_idx_rank(i); \
-    s = dict_idx_select(d+1) - i;
+    s = d>=dwords ? dsize-i : dict_idx_select(d+1) - i;
 
      /* uses LCP of dict to build BWT (less memory, more time)
      */
@@ -52,11 +52,19 @@ class pfbwt {
         sort_dict_suffixes(true); // build SA and lcp
         // start from SA item that's not EndOfWord or EndOfDict
         size_t next, suff_len, wordi, ilist_pos;
-        uint8_t bwtc, pbwtc = Dollar;
+        uint8_t bwtc, pbwtc = 0;
         size_t easy_cases = 0, hard_cases = 0;
         for (size_t i = dwords+w+1; i<dsize; i=next) { 
             next = i+1;
+            // fprintf(stdout, "%lu\n", sa[i]);
             get_word_suflen(sa[i], wordi, suff_len);
+            // wordi = dict_idx_rank(sa[i]);
+            // if (wordi >= dwords) {
+            //     fprintf(stderr, "%lu %lu\n", wordi, dwords);
+            //     // die("dwordth word; bad word");
+            // }
+            // if (wordi == 0) die("0th word; bad word");
+            // else suff_len = dict_idx_select(wordi+1) - sa[i];
             if (suff_len <= w) continue; // ignore small suffixes
             // full word case
             if (sa[i] == 0 || dict_idx[sa[i]-1] == 1) {
@@ -86,17 +94,14 @@ class pfbwt {
                     c = dict[sa[j]-1];
                     chars.push_back(c);
                     words.push_back(nwordi);
-                    same_char = (c == pc);
+                    same_char = same_char ? (c == pc) : 0;
                     pc = c;
                 } // everything seemingly good up till here.
                 next = j;
                 if (same_char) {
-                    for (auto x = 0; x < chars.size(); ++x) {
-                        fprintf(stderr, "%c %lu\n", chars[x], words[x]);
-                    }
+                    // print c to bwt after getting all the lengths
                     ++easy_cases;
                 } else {
-                    /*
                     std::vector<SuffixT> suffs;
                     for (int idx = 0; idx < words.size(); ++idx) {
                         // get ilist of each of these words, make a heap
@@ -104,12 +109,10 @@ class pfbwt {
                             suffs.push_back(SuffixT(chars[idx], word));
                         }
                     }
-                    */
-                    // std::sort(suffs.begin(), suffs.end());
-                    // fprintf(stderr, "-----\n");
-                    // for (auto s: suffs) {
-                    //     fprintf(stderr, "%llu %c\n", s.bwtp, s.bwtc);
-                    // }
+                    std::sort(suffs.begin(), suffs.end());
+                    for (auto s: suffs) {
+                         fprintf(stderr, "%lu %d\n", s.bwtp, s.bwtc);
+                    }
                     ++hard_cases;
                 }
                 chars.clear();
@@ -181,6 +184,7 @@ class pfbwt {
                 x += 1;
             }
         }
+        // dict[0] = 0;
     }
 
     void load_ilist_idx(std::string fname) {
@@ -243,7 +247,7 @@ class pfbwt {
         // get to the end of the previous word's list, then add one to get
         // to the start of the current word
         auto startpos = wordi ? ilist_idx_select(wordi) + 1 : 0;
-        auto endpos = ilist_idx_select(wordi+1);
+        auto endpos = wordi >= dwords ? ilist.size()-1 : ilist_idx_select(wordi+1);
         std::vector<size_t> v;
         v.reserve(endpos - startpos + 1);
         for (size_t j = startpos+1; j < endpos+2; ++j)
