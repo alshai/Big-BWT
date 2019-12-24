@@ -4,10 +4,13 @@
 #include <string>
 #include <getopt.h>
 #include "pfbwt.hpp"
+// extern "C" {
+// #include "utils.h"
+// }
 
 struct Args {
     std::string prefix;
-    int w = 64;
+    int w = 10;
     bool sa = false;
 };
 
@@ -19,10 +22,10 @@ Args parseArgs(int argc, char** argv) {
     Args args;
     int c;
 
-    fputs("==== Command line:", stderr);
-    for(int i=0;i<argc;i++)
-        fprintf(stderr, " %s",argv[i]);
-    fputs("\n", stderr);
+    // fputs("==== Command line:", stderr);
+    // for(int i=0;i<argc;i++)
+    //     fprintf(stderr, " %s",argv[i]);
+    // fputs("\n", stderr);
 
     std::string sarg;
     while ((c = getopt( argc, argv, "w:hsf") ) != -1) {
@@ -54,11 +57,12 @@ Args parseArgs(int argc, char** argv) {
 
 void run_pfbwt(Args args) {
     pfbwt p(args.prefix, args.w); // load dict, ilist, last, etc
-    p.generate_bwt_lcp(args.prefix);
+    FILE* bwt_fp = open_aux_file(args.prefix.data(),"bwt","wb");
+    p.generate_bwt_lcp([&bwt_fp](uint8_t c) { fputc(c, bwt_fp); });
+    fclose(bwt_fp);
 }
 
 int main(int argc, char** argv) {
-    // parse arguments here
     Args args(parseArgs(argc, argv));
     run_pfbwt(args);
 }

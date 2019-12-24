@@ -47,8 +47,8 @@ class pfbwt {
 
      /* uses LCP of dict to build BWT (less memory, more time)
      */
-    void generate_bwt_lcp(std::string prefix) {
-        FILE* bwt_fp = open_aux_file(prefix.data(), "bwt", "wb");
+    template<typename F>
+    void generate_bwt_lcp(F bwt_processor) {
         sort_dict_suffixes(true); // build SA and lcp
         // start from SA item that's not EndOfWord or EndOfDict
         size_t next, suff_len, wordi, ilist_pos;
@@ -58,23 +58,14 @@ class pfbwt {
             next = i+1;
             // fprintf(stdout, "%lu\n", sa[i]);
             get_word_suflen(sa[i], wordi, suff_len);
-            // wordi = dict_idx_rank(sa[i]);
-            // if (wordi >= dwords) {
-            //     fprintf(stderr, "%lu %lu\n", wordi, dwords);
-            //     // die("dwordth word; bad word");
-            // }
-            // if (wordi == 0) die("0th word; bad word");
-            // else suff_len = dict_idx_select(wordi+1) - sa[i];
             if (suff_len <= w) continue; // ignore small suffixes
             // full word case
             if (sa[i] == 0 || dict_idx[sa[i]-1] == 1) {
                 auto word_ilist = get_word_ilist(wordi);
                 for (auto j: word_ilist) {
-                    // fprintf(stderr, "%lu %lu\n", wordi, j);
                     bwtc = bwlast[j];
                     // TODO: do SA/DA/etc stuff here,
-                    // TODO: uncomment this next line
-                    // if (fputc(bwtc, bwt_fp) == EOF) die("error writing to bwt file");
+                    bwt_processor(bwtc);
                     pbwtc = bwtc; // for SA
                 } 
                 ++easy_cases;
@@ -100,8 +91,15 @@ class pfbwt {
                 next = j;
                 if (same_char) {
                     // print c to bwt after getting all the lengths
+                    for (auto word: words)  {
+                        size_t nilist = get_ilist_size(word);
+                        for (size_t k = 0; k < nilist; ++k) {
+                            bwt_processor(chars[0]);
+                        }
+                    }
                     ++easy_cases;
                 } else {
+                    // TODO: maybe a heap will be better? Like in the original
                     std::vector<SuffixT> suffs;
                     for (int idx = 0; idx < words.size(); ++idx) {
                         // get ilist of each of these words, make a heap
@@ -111,7 +109,7 @@ class pfbwt {
                     }
                     std::sort(suffs.begin(), suffs.end());
                     for (auto s: suffs) {
-                         fprintf(stderr, "%lu %d\n", s.bwtp, s.bwtc);
+                        bwt_processor(s.bwtc);
                     }
                     ++hard_cases;
                 }
@@ -130,6 +128,7 @@ class pfbwt {
 
     /* run gSACAK on d 
      * populates sa, lcp, and dict_idx;
+     * this is where the bulk of the algorithm takes its time
      */
     void sort_dict_suffixes(bool build_lcp = true) {
         if (dsize < 1) die("error: dictionary not loaded\n");
@@ -241,6 +240,12 @@ class pfbwt {
             die("error reading bwlast file");
         }
         fclose(bwlast_fp);
+    }
+
+    size_t get_ilist_size(size_t wordi) {
+        auto startpos = wordi ? ilist_idx_select(wordi) + 1 : 0;
+        auto endpos = wordi >= dwords ? ilist.size()-1 : ilist_idx_select(wordi+1);
+        return endpos - startpos + 1;
     }
 
     std::vector<size_t> get_word_ilist(size_t wordi) {
