@@ -455,7 +455,7 @@ void print_help(char** argv, Args &args) {
 void parseArgs( int argc, char** argv, Args& arg ) {
    int c;
    extern char *optarg;
-   extern int optind;
+   //extern int optind;
 
   puts("==== Command line:");
   for(int i=0;i<argc;i++)
@@ -489,14 +489,16 @@ void parseArgs( int argc, char** argv, Args& arg ) {
         exit(1);
       }
    }
+
    // the only input parameter is the file name
-   if (argc == optind+1) {
-     arg.inputFileName.assign( argv[optind] );
-   }
-   else {
+   if (argc == 1) {
       cout << "Invalid number of arguments" << endl;
       print_help(argv,arg);
    }
+   else {
+      arg.inputFileName.assign(argv[1]);
+   }
+
    // check algorithm parameters
    if(arg.w <4) {
      cout << "Windows size must be at least 4\n";

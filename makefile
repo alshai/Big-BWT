@@ -35,11 +35,11 @@ simplebwt64: simplebwt.c gsa/gsacak64.o
 cnewscan.x: newscan.cpp malloc_count.o utils.o
 	$(CXX) $(CXX_FLAGS) -DGZSTREAM -o $@ $^ -lgzstream -lz -ldl -DNOTHREADS
 
-newscanNT.x: newscan.cpp malloc_count.o utils.o
-	$(CXX) $(CXX_FLAGS) -o $@ $^ -lz -ldl -DNOTHREADS
+newscanNT.x: newscan.cpp utils.o
+	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp utils.o -lz -ldl -DNOTHREADS
 
-newscan.x: newscan.cpp newscan.hpp malloc_count.o utils.o xerrors.o 
-	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp malloc_count.o utils.o xerrors.o -ldl -lz -pthread
+newscan.x: newscan.cpp newscan.hpp utils.o xerrors.o 
+	$(CXX) $(CXX_FLAGS) -o $@ newscan.cpp utils.o xerrors.o -ldl -lz -pthread
 
 pscan.x: pscan.cpp pscan.hpp malloc_count.o utils.o xerrors.o 
 	$(CXX) $(CXX_FLAGS) -o $@ pscan.cpp malloc_count.o utils.o xerrors.o -ldl -pthread
