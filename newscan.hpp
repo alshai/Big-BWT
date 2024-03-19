@@ -66,7 +66,7 @@ void *mt_parse(void *dx)
     if(hash%arg->p==0 && d->parsed>arg->w) {
       // end of word, save it and write its full hash to the output file
       // pos is the ending position+1 of previous word and is updated in the next call
-      save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
+      save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos,arg->probing);
       d->words++;
       if(d->true_start+d->skipped+d->parsed>=d->true_end+arg->w) {f.close(); return NULL;}
     }
@@ -74,7 +74,7 @@ void *mt_parse(void *dx)
   // end of file reached
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg->w,Dollar);
-  save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
+  save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos,arg->probing);
   // close input file and return
   f.close();
   return NULL;
@@ -206,7 +206,7 @@ void *mt_parse_fasta(void *dx)
       if(hash%arg->p==0 && d->parsed>arg->w) {
         // end of word, save it and write its full hash to the output file
         // pos is the ending position+1 of previous word and is updated in the next call
-        save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
+        save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos,arg->probing);
         d->words++;
         if(d->true_start+d->skipped+d->parsed>=d->true_end+arg->w) {
           f.close(); return NULL;
@@ -218,7 +218,7 @@ void *mt_parse_fasta(void *dx)
   // end of file reached
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg->w,Dollar);
-  save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos);
+  save_update_word(word,arg->w,*wordFreq,d->parse,d->last,d->sa,pos,arg->probing);
   // close input file and return
   f.close();
   return NULL;
