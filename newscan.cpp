@@ -496,12 +496,14 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fscht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fsCcht:v") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
         case 'c':
         arg.probing = true; break;
+        case 'C':
+        arg.compress = true; break;
         case 'w':
         sarg.assign( optarg );
         arg.w = stoi( sarg ); break;

@@ -44,11 +44,12 @@ def main():
   parser.add_argument('-S',  help='compute the full Suffix Array',action='store_true')
   parser.add_argument('-k',  help='keep temporary files',action='store_true')
   parser.add_argument('-v',  help='verbose',action='store_true')
-  parser.add_argument('-c',  help='check BWT using SACA-K',action='store_true')
+  parser.add_argument('-C',  help='check BWT using SACA-K',action='store_true')
   parser.add_argument('-f', help='read fasta',action='store_true')
   parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
+  parser.add_argument('--probing','-c', help='use linear probing to avoid hash collisions during parsing',action='store_true', dest='probing')
   args = parser.parse_args()
 
   if args.f and args.t > 0 and (".fq" in args.input or ".fastq" in args.input or ".fnq" in args.input): 
@@ -77,7 +78,8 @@ def main():
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
-    if args.parsing or args.compress: command += " -c"
+    if args.parsing or args.compress: command += " -C"
+    if args.probing: command += " -c"
     if args.f: command += " -f"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
@@ -172,7 +174,7 @@ def main():
     delete_temp_files(args,logfile,logfile_name)
 
     # --- start checking ---
-    if args.c:
+    if args.C:
       start = time.time()
       if(os.path.getsize(args.input)>= 2**31):
         command = "{exe} {file}".format(
