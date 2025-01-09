@@ -478,7 +478,8 @@ void print_help(char** argv, Args &args) {
         #endif
         << "\t-h  \tshow help and exit" << endl
         << "\t-s  \tcompute suffix array info" << endl
-        << "\t-c  \tuse linear probing to avoid hash collisions during parsing" << endl;
+        << "\t-P  \tuse linear probing to avoid hash collisions during parsing" << endl
+        << "\t-c  \tcompress the output dictionary" << endl;
   #ifdef GZSTREAM
   cout << "If the input file is gzipped it is automatically extracted\n";
   #endif
@@ -500,9 +501,9 @@ void parseArgs( int argc, char** argv, Args& arg ) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
-        case 'c':
+        case 'P':
         arg.probing = true; break;
-        case 'C':
+        case 'c':
         arg.compress = true; break;
         case 'w':
         sarg.assign( optarg );
@@ -538,7 +539,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
      exit(1);
    }
    if(arg.p<10) {
-     cout << "Modulus must be at leas 10\n";
+     cout << "Modulus must be at least 10\n";
      exit(1);
    }
    #ifdef NOTHREADS
