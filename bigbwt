@@ -79,7 +79,7 @@ def main():
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
     if args.parsing or args.compress: command += " -C"
-    if args.probing: command += " -c"
+    if args.probing: command += " -P"
     if args.f: command += " -f"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
