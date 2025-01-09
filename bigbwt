@@ -174,7 +174,7 @@ def main():
     delete_temp_files(args,logfile,logfile_name)
 
     # --- start checking ---
-    if args.C:
+    if args.c:
       start = time.time()
       if(os.path.getsize(args.input)>= 2**31):
         command = "{exe} {file}".format(
