@@ -497,7 +497,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fsCcht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fsPcht:v") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
