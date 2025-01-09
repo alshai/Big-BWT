@@ -78,7 +78,7 @@ def main():
               wsize=args.wsize, modulus = args.mod, file=args.input)
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
-    if args.parsing or args.compress: command += " -C"
+    if args.parsing or args.compress: command += " -c"
     if args.probing: command += " -P"
     if args.f: command += " -f"
     print("==== Parsing. Command:", command)
