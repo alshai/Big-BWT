@@ -159,6 +159,7 @@ struct Args {
    bool compress = false; // parsing called in compress mode
    int th=0;              // number of helper threads
    int verbose=0;         // verbosity level
+   bool probing = false; // use linear probing to avoid collisions
 };
 
 
@@ -215,7 +216,7 @@ struct KR_window {
 };
 // -----------------------------------------------------------
 
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos);
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos, bool probing);
 
 #ifndef NOTHREADS
 #include "newscan.hpp"
@@ -241,35 +242,53 @@ uint64_t kr_hash(string s) {
 
 // save current word in the freq map and update it leaving only the
 // last minsize chars which is the overlap with next word
-static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos)
+static void save_update_word(string& w, unsigned int minsize,map<uint64_t,word_stats>&  freq, FILE *tmp_parse_file, FILE *last, FILE *sa, uint64_t &pos, bool probing)
 {
   assert(pos==0 || w.size() > minsize);
   if(w.size() <= minsize) return;
   // get the hash value and write it to the temporary parse file
   uint64_t hash = kr_hash(w);
-  if(fwrite(&hash,sizeof(hash),1,tmp_parse_file)!=1) die("parse write error");
-
+  
 #ifndef NOTHREADS
   xpthread_mutex_lock(&map_mutex,__LINE__,__FILE__);
 #endif
   // update frequency table for current hash
-  if(freq.find(hash)==freq.end()) {
-      freq[hash].occ = 1; // new hash
+  if (probing) {
+    auto slot = freq.find(hash);
+    while(slot!=freq.end() && freq[hash].str != w ) { 
+      hash += 1;                                //TODO: mod this so it circles around when probing
+      slot = freq.find(hash);
+    }
+    if (slot == freq.end()) {
+      freq[hash].occ = 1;
       freq[hash].str = w;
+    }
+    else {
+      freq[hash].occ += 1;
+    }
   }
   else {
-      freq[hash].occ += 1; // known hash
-      if(freq[hash].occ <=0) {
-        cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
-        cerr<< MAX_WORD_OCC << ") exceeded\n";
-        exit(1);
-      }
-      if(freq[hash].str != w) {
-        cerr << "Emergency exit! Hash collision for strings:\n";
-        cerr << freq[hash].str << "\n  vs\n" <<  w << endl;
-        exit(1);
-      }
+    if(freq.find(hash)==freq.end()) {
+        freq[hash].occ = 1; // new hash
+        freq[hash].str = w;
+    }
+    else {
+        freq[hash].occ += 1; // known hash
+        if(freq[hash].occ <=0) {
+          cerr << "Emergency exit! Maximum # of occurence of dictionary word (";
+          cerr<< MAX_WORD_OCC << ") exceeded\n";
+          exit(1);
+        }
+        if(freq[hash].str != w) {
+          cerr << "Emergency exit! Hash collision for strings:\n";
+          cerr << freq[hash].str << "\n  vs\n" <<  w << endl;
+          exit(1);
+        }
+    }
   }
+
+  if(fwrite(&hash,sizeof(hash),1,tmp_parse_file)!=1) die("parse write error");
+  
 #ifndef NOTHREADS
   xpthread_mutex_unlock(&map_mutex,__LINE__,__FILE__);
 #endif
@@ -323,7 +342,7 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
               word.append(1, c);
               uint64_t hash = krw.addchar(c);
               if (hash%arg.p==0) {
-                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+                  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos, arg.probing);
               }
           }
           if (c <= Dollar) break;
@@ -348,14 +367,14 @@ uint64_t process_file(Args& arg, map<uint64_t,word_stats>& wordFreq)
         if(hash%arg.p==0) {
           // end of word, save it and write its full hash to the output file
           // cerr << "~"<< c << "~ " << hash << " ~~ <" << word << "> ~~ <" << krw.get_window() << ">" <<  endl;
-          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+          save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos,arg.probing);
         }
       }
       f.close();
   }
   // virtually add w null chars at the end of the file and add the last word in the dict
   word.append(arg.w,Dollar);
-  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos);
+  save_update_word(word,arg.w,wordFreq,g,last_file,sa_file,pos,arg.probing);
   // close input and output files
   if(sa_file) if(fclose(sa_file)!=0) die("Error closing SA file");
   if(fclose(last_file)!=0) die("Error closing last file");
@@ -396,6 +415,19 @@ void writeDictOcc(Args &arg, map<uint64_t,word_stats> &wfreq, vector<const strin
     if(s!=len) die("Error writing to DICT file");
     if(fputc(EndOfWord,fdict)==EOF) die("Error writing EndOfWord to DICT file");
     uint64_t hash = kr_hash(*x);
+
+    // word_stats wf; 
+    if (arg.probing) {
+      auto wf_slot = wfreq.find(hash);
+      while(wf_slot!=wfreq.end() && &(wf_slot->second.str) != x ) {
+        hash += 1;                                //TODO: mod this so it circles around when probing
+        wf_slot = wfreq.find(hash);
+      }
+      if (wf_slot == wfreq.end()) {   // should never happen!
+        cerr << "Emergency exit! Saved string not found while probing!" << endl;
+        exit(1);
+      }
+    }
     auto& wf = wfreq.at(hash);
     assert(wf.occ>0);
     s = fwrite(&wf.occ,sizeof(wf.occ),1, focc);
@@ -445,7 +477,9 @@ void print_help(char** argv, Args &args) {
         << "\t-t M\tnumber of helper threads, def. none " << endl
         #endif
         << "\t-h  \tshow help and exit" << endl
-        << "\t-s  \tcompute suffix array info" << endl;
+        << "\t-s  \tcompute suffix array info" << endl
+        << "\t-P  \tuse linear probing to avoid hash collisions during parsing" << endl
+        << "\t-c  \tcompress the output dictionary" << endl;
   #ifdef GZSTREAM
   cout << "If the input file is gzipped it is automatically extracted\n";
   #endif
@@ -463,10 +497,12 @@ void parseArgs( int argc, char** argv, Args& arg ) {
   puts("");
 
    string sarg;
-   while ((c = getopt( argc, argv, "p:w:fsht:v") ) != -1) {
+   while ((c = getopt( argc, argv, "p:w:fsPcht:v") ) != -1) {
       switch(c) {
         case 's':
         arg.SAinfo = true; break;
+        case 'P':
+        arg.probing = true; break;
         case 'c':
         arg.compress = true; break;
         case 'w':
@@ -503,7 +539,7 @@ void parseArgs( int argc, char** argv, Args& arg ) {
      exit(1);
    }
    if(arg.p<10) {
-     cout << "Modulus must be at leas 10\n";
+     cout << "Modulus must be at least 10\n";
      exit(1);
    }
    #ifdef NOTHREADS

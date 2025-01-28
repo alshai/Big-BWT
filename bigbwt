@@ -49,6 +49,7 @@ def main():
   parser.add_argument('--sum', help='compute output files sha256sum',action='store_true')
   parser.add_argument('--parsing',  help='stop after the parsing phase (debug only)',action='store_true')
   parser.add_argument('--compress',  help='compress output of the parsing phase (debug only)',action='store_true')
+  parser.add_argument('--probing','-P', help='use linear probing to avoid hash collisions during parsing',action='store_true', dest='probing')
   args = parser.parse_args()
 
   if args.f and args.t > 0 and (".fq" in args.input or ".fastq" in args.input or ".fnq" in args.input): 
@@ -78,6 +79,7 @@ def main():
     if (args.s or args.e or args.S): command += " -s"
     if args.v: command += " -v"
     if args.parsing or args.compress: command += " -c"
+    if args.probing: command += " -P"
     if args.f: command += " -f"
     print("==== Parsing. Command:", command)
     if(execute_command(command,logfile,logfile_name)!=True):
